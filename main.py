@@ -110,7 +110,6 @@ def find_all_urls(url):
     urls = []
     while True:
         urls.append(url)
-        print(url)
         resp = requests.get(url)
         soup = BeautifulSoup(resp.text, "html.parser")
         resp.close()
@@ -128,17 +127,24 @@ def find_all_urls(url):
 def main():
     url = sys.argv[1]
     urls = find_all_urls(url)
+    print("Found %i chapters" % len(urls))
 
     book = epub.EpubBook()
-
-    chapter = epub.EpubHtml(file_name="content.html")
     image_map = ImageMap()
     authors = OrderedDict()
-    (title, chapter_content) = download_chapter(url, image_map, authors)
-    book.set_title(title)
-    chapter.content = chapter_content
-    chapter.add_link(href="style.css", rel="stylesheet", type="text/css")
-    book.add_item(chapter)
+
+    chapters = []
+    book_tile = None
+    for (i, url) in enumerate(urls):
+        (title, chapter_content) = download_chapter(url, image_map, authors)
+        if i == 0:
+            book.set_title(title)
+            book_title = title
+        chapter = epub.EpubHtml(title=title, file_name="chapter%i.html" % i)
+        chapter.content = chapter_content
+        chapter.add_link(href="style.css", rel="stylesheet", type="text/css")
+        book.add_item(chapter)
+        chapters.append(chapter)
 
     style = epub.EpubItem(
         uid="style", file_name="style.css", media_type="text/css", content=stylesheet
@@ -156,10 +162,16 @@ def main():
         )
         resp.close()
         book.add_item(item)
+
     for author in authors.keys():
         book.add_author(author)
-    book.spine = [chapter]
-    out_path = "%s.epub" % title
+
+    book.toc = chapters
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+
+    book.spine = ["nav"] + chapters
+    out_path = "%s.epub" % book_title
     print("Saving book to %s" % out_path)
     epub.write_epub(out_path, book, {})
 
