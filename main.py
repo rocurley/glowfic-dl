@@ -17,7 +17,7 @@ class ImageMap:
     def insert(self, path):
         if path not in self.map:
             ext = path.split(".")[-1]
-            self.map[path] = "%i.%s" % (self.next, ext)
+            self.map[path] = "img%i.%s" % (self.next, ext)
             self.next += 1
         return self.map[path]
 
