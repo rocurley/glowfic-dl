@@ -1,8 +1,6 @@
 from bs4 import BeautifulSoup
 import requests
-from IPython.display import IFrame, display, HTML
 from ebooklib import epub
-import itertools
 from tqdm import tqdm
 import sys
 from urllib.parse import urljoin
