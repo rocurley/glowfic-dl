@@ -14,4 +14,4 @@ For Kindle, I recommend using Calibre to convert it to AZW3 and not MOBI: this g
 For Kobo, the formatting isn't great yet: it doesn't handle suggested page breaks particularly well.
 Kobos also have trouble with very long chapters: since each post is 1 chapter, and many posts are very long, this can be an issue.
 
-PRs welcome. I'd particularly welcomn improvements to the Kobo results.
+PRs welcome. I'd particularly welcome improvements to the Kobo results.
