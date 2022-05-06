@@ -83,7 +83,6 @@ output_template = """
 
 
 def render_posts(posts, image_map, authors):
-    authors_sorted = []
     out = BeautifulSoup(output_template, "html.parser")
     body = out.find("div")
     for post in posts:
@@ -151,15 +150,18 @@ def main():
 
     print("Downloading images")
     for (k, v) in tqdm(image_map.map.items()):
-        resp = requests.get(k)
-        item = epub.EpubItem(
-            uid=v,
-            file_name=v,
-            media_type=resp.headers["Content-Type"],
-            content=resp.content,
-        )
-        resp.close()
-        book.add_item(item)
+        try:
+            resp = requests.get(k, timeout=15)
+            item = epub.EpubItem(
+                uid=v,
+                file_name=v,
+                media_type=resp.headers["Content-Type"],
+                content=resp.content,
+            )
+            resp.close()
+            book.add_item(item)
+        except requests.exceptions.RequestException:
+            print("Failed to download %s" % k)
 
     for author in authors.keys():
         book.add_author(author)
