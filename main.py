@@ -116,7 +116,7 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
     soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
     posts = soup.find_all("div", "post-container")
-    title = soup.find("span", id="post-title").text.strip()
+    title = validate_tag(soup.find("span", id="post-title"), soup).text.strip()
     sections = []
     for (j, section_html) in enumerate(render_posts(posts, image_map, authors)):
         section = epub.EpubHtml(title=title, file_name="chapter%i_%i.html" % (i, j))
@@ -124,6 +124,16 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
         section.add_link(href="style.css", rel="stylesheet", type="text/css")
         sections.append(section)
     return sections
+
+
+def validate_tag(tag, soup):
+    if tag is not None:
+        return tag
+    err = soup.find("div", "flash error")
+    if err is not None:
+        raise RuntimeError(err.text.strip())
+    else:
+        raise RuntimeError("Unknown error: tag missing")
 
 
 GLOWFIC_ROOT = "https://glowfic.com"
@@ -136,7 +146,9 @@ async def get_post_urls_and_title(session, limiter, url):
         await limiter.acquire()
         resp = await session.get(url)
         soup = BeautifulSoup(await resp.text(), "html.parser")
-        rows = soup.find("div", id="content").find_all("td", "post-subject")
+        rows = validate_tag(soup.find("div", id="content"), soup).find_all(
+            "td", "post-subject"
+        )
         posts = [urljoin(GLOWFIC_ROOT, row.find("a")["href"]) for row in rows]
         title = soup.find("th", "table-title").text.strip()
         return (title, posts)
