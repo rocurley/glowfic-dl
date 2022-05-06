@@ -102,33 +102,32 @@ def render_posts(posts, image_map, authors):
     return out
 
 
-async def download_chapter(session, url, image_map, authors):
+async def download_chapter(session, i, url, image_map, authors):
     resp = await session.get(url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
     posts = soup.find_all("div", "post-container")
     title = soup.find("span", id="post-title").text.strip()
     posts_html = render_posts(posts, image_map, authors)
-    print('Downloaded text of "%s"' % title)
-    return (title, str(posts_html))
+    chapter = epub.EpubHtml(title=title, file_name="chapter%i.html" % i)
+    chapter.content = str(posts_html)
+    chapter.add_link(href="style.css", rel="stylesheet", type="text/css")
+    return chapter
 
 
-async def find_all_urls(session, url):
-    urls = []
-    while True:
-        urls.append(url)
+GLOWFIC_ROOT = "https://glowfic.com"
+
+
+async def get_post_urls_and_title(session, url):
+    if "posts" in url:
+        return (None, [url])
+    if "board_sections" in url:
         resp = await session.get(url)
         soup = BeautifulSoup(await resp.text(), "html.parser")
-        resp.close()
-        next_buttons = [
-            div
-            for div in soup.find_all("div", "view-button")
-            if div.text == "Next Post »"
-        ]
-        if len(next_buttons) == 0:
-            return urls
-        next_button = next_buttons[0]
-        url = urljoin(url, next_button.parent["href"])
+        rows = soup.find("div", id="content").find_all("td", "post-subject")
+        posts = [urljoin(GLOWFIC_ROOT, row.find("a")["href"]) for row in rows]
+        title = soup.find("th", "table-title").text.strip()
+        return (title, posts)
 
 
 async def download_image(session, url, id):
@@ -154,29 +153,28 @@ async def download_images(session, image_map):
 
 
 async def main():
-    conn = aiohttp.TCPConnector(limit_per_host=6)
-    async with aiohttp.ClientSession(connector=conn) as session:
+    slow_conn = aiohttp.TCPConnector(limit_per_host=1)
+    async with aiohttp.ClientSession(connector=slow_conn) as session:
         url = sys.argv[1]
-        urls = await find_all_urls(session, url)
+        (book_title, urls) = await get_post_urls_and_title(session, url)
         print("Found %i chapters" % len(urls))
 
         book = epub.EpubBook()
         image_map = ImageMap()
         authors = OrderedDict()
 
-        chapters = []
-        for (i, url) in enumerate(urls):
-            (title, chapter_content) = await download_chapter(
-                session, url, image_map, authors
-            )
-            if i == 0:
-                book.set_title(title)
-                book_title = title
-            chapter = epub.EpubHtml(title=title, file_name="chapter%i.html" % i)
-            chapter.content = chapter_content
-            chapter.add_link(href="style.css", rel="stylesheet", type="text/css")
+        print("Downloading chapter texts")
+        chapters = await tqdm.gather(
+            *[
+                download_chapter(session, i, url, image_map, authors)
+                for (i, url) in enumerate(urls)
+            ]
+        )
+        for chapter in chapters:
             book.add_item(chapter)
-            chapters.append(chapter)
+        if book_title is None:
+            book_title = chapters[0].title
+        book.set_title(book_title)
 
         style = epub.EpubItem(
             uid="style",
