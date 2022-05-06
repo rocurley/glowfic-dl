@@ -10,8 +10,6 @@ import aiolimiter
 
 # TODO:
 # * Split large chapers somehow
-# * Download posts, continuities &c explicitly, rather than automatically
-#   advancing via next post
 # * Better kobo handling
 # * Rewrite internal links
 # * Less bad covers
@@ -123,7 +121,7 @@ GLOWFIC_ROOT = "https://glowfic.com"
 async def get_post_urls_and_title(session, limiter, url):
     if "posts" in url:
         return (None, [url])
-    if "board_sections" in url:
+    if "board_sections" in url or "boards" in url:
         await limiter.acquire()
         resp = await session.get(url)
         soup = BeautifulSoup(await resp.text(), "html.parser")

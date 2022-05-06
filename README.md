@@ -2,13 +2,14 @@
 
 Downloads glowfic! Invoke it like so:
 ```
-python3 main.py https://glowfic.com/posts/5111
+python3 main.py https://glowfic.com/posts/5111 # download one post
+python3 main.py https://glowfic.com/board_sections/703 # download a board section
+python3 main.py https://glowfic.com/boards/215 # download a whole continuity
 ```
 If you get errors, make sure you've got the dependencies installed:
 ```
 pip3 install ebooklib tqdm bs4 aiohttp aiolimiter
 ```
-It produces an epub of the entire board section starting from the post you give it.
 I've tested it on Kindle and Kobo.
 For Kindle, I recommend using Calibre to convert it to AZW3 and not MOBI: this gives significantly better formatting.
 For Kobo, the formatting isn't great yet: it doesn't handle suggested page breaks particularly well.
