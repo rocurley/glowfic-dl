@@ -6,7 +6,7 @@ python3 main.py https://glowfic.com/posts/5111
 ```
 If you get errors, make sure you've got the dependencies installed:
 ```
-pip3 install requests ebooklib tqdm bs4
+pip3 install requests ebooklib tqdm bs4 aiohttp
 ```
 It produces an epub of the entire board section starting from the post you give it.
 I've tested it on Kindle and Kobo.

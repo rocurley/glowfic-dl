@@ -1,10 +1,21 @@
 from bs4 import BeautifulSoup
 import requests
 from ebooklib import epub
-from tqdm import tqdm
+from tqdm.asyncio import tqdm
 import sys
 from urllib.parse import urljoin, urlparse
 from collections import OrderedDict
+import asyncio
+import aiohttp
+
+# TODO:
+# * Split large chapers somehow
+# * Download posts, continuities &c explicitly, rather than automatically
+#   advancing via next post
+# * Strip out requests
+# * Better kobo handling
+# * Rewrite internal links
+# * Less bad covers
 
 
 class ImageMap:
@@ -122,6 +133,29 @@ def find_all_urls(url):
         url = urljoin(url, next_button.parent["href"])
 
 
+async def download_image(session, url, id):
+    try:
+        async with session.get(url, timeout=15) as resp:
+            item = epub.EpubItem(
+                uid=id,
+                file_name=id,
+                media_type=resp.headers["Content-Type"],
+                content=await resp.read(),
+            )
+            return item
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        print("Failed to download %s" % url)
+        return None
+
+
+async def download_images(image_map):
+    async with aiohttp.ClientSession() as session:
+        in_flight = []
+        for (k, v) in image_map.map.items():
+            in_flight.append(download_image(session, k, v))
+        return [image for image in await tqdm.gather(*in_flight) if image is not None]
+
+
 def main():
     url = sys.argv[1]
     urls = find_all_urls(url)
@@ -149,19 +183,10 @@ def main():
     book.add_item(style)
 
     print("Downloading images")
-    for (k, v) in tqdm(image_map.map.items()):
-        try:
-            resp = requests.get(k, timeout=15)
-            item = epub.EpubItem(
-                uid=v,
-                file_name=v,
-                media_type=resp.headers["Content-Type"],
-                content=resp.content,
-            )
-            resp.close()
-            book.add_item(item)
-        except requests.exceptions.RequestException:
-            print("Failed to download %s" % k)
+    images = asyncio.run(download_images(image_map))
+
+    for image in images:
+        book.add_item(image)
 
     for author in authors.keys():
         book.add_author(author)
