@@ -6,6 +6,7 @@ from urllib.parse import urljoin, urlparse
 from collections import OrderedDict
 import asyncio
 import aiohttp
+import aiolimiter
 
 # TODO:
 # * Split large chapers somehow
@@ -102,7 +103,8 @@ def render_posts(posts, image_map, authors):
     return out
 
 
-async def download_chapter(session, i, url, image_map, authors):
+async def download_chapter(session, limiter, i, url, image_map, authors):
+    await limiter.acquire()
     resp = await session.get(url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
@@ -118,10 +120,11 @@ async def download_chapter(session, i, url, image_map, authors):
 GLOWFIC_ROOT = "https://glowfic.com"
 
 
-async def get_post_urls_and_title(session, url):
+async def get_post_urls_and_title(session, limiter, url):
     if "posts" in url:
         return (None, [url])
     if "board_sections" in url:
+        await limiter.acquire()
         resp = await session.get(url)
         soup = BeautifulSoup(await resp.text(), "html.parser")
         rows = soup.find("div", id="content").find_all("td", "post-subject")
@@ -154,53 +157,57 @@ async def download_images(session, image_map):
 
 async def main():
     slow_conn = aiohttp.TCPConnector(limit_per_host=1)
-    async with aiohttp.ClientSession(connector=slow_conn) as session:
-        url = sys.argv[1]
-        (book_title, urls) = await get_post_urls_and_title(session, url)
-        print("Found %i chapters" % len(urls))
+    async with aiohttp.ClientSession(connector=slow_conn) as slow_session:
+        async with aiohttp.ClientSession() as fast_session:
+            limiter = aiolimiter.AsyncLimiter(1, 1)
+            url = sys.argv[1]
+            (book_title, urls) = await get_post_urls_and_title(
+                slow_session, limiter, url
+            )
+            print("Found %i chapters" % len(urls))
 
-        book = epub.EpubBook()
-        image_map = ImageMap()
-        authors = OrderedDict()
+            book = epub.EpubBook()
+            image_map = ImageMap()
+            authors = OrderedDict()
 
-        print("Downloading chapter texts")
-        chapters = await tqdm.gather(
-            *[
-                download_chapter(session, i, url, image_map, authors)
-                for (i, url) in enumerate(urls)
-            ]
-        )
-        for chapter in chapters:
-            book.add_item(chapter)
-        if book_title is None:
-            book_title = chapters[0].title
-        book.set_title(book_title)
+            print("Downloading chapter texts")
+            chapters = await tqdm.gather(
+                *[
+                    download_chapter(slow_session, limiter, i, url, image_map, authors)
+                    for (i, url) in enumerate(urls)
+                ]
+            )
+            for chapter in chapters:
+                book.add_item(chapter)
+            if book_title is None:
+                book_title = chapters[0].title
+            book.set_title(book_title)
 
-        style = epub.EpubItem(
-            uid="style",
-            file_name="style.css",
-            media_type="text/css",
-            content=stylesheet,
-        )
-        book.add_item(style)
+            style = epub.EpubItem(
+                uid="style",
+                file_name="style.css",
+                media_type="text/css",
+                content=stylesheet,
+            )
+            book.add_item(style)
 
-        print("Downloading images")
-        images = await download_images(session, image_map)
+            print("Downloading images")
+            images = await download_images(fast_session, image_map)
 
-        for image in images:
-            book.add_item(image)
+            for image in images:
+                book.add_item(image)
 
-        for author in authors.keys():
-            book.add_author(author)
+            for author in authors.keys():
+                book.add_author(author)
 
-        book.toc = chapters
-        book.add_item(epub.EpubNcx())
-        book.add_item(epub.EpubNav())
+            book.toc = chapters
+            book.add_item(epub.EpubNcx())
+            book.add_item(epub.EpubNav())
 
-        book.spine = ["nav"] + chapters
-        out_path = "%s.epub" % book_title
-        print("Saving book to %s" % out_path)
-        epub.write_epub(out_path, book, {})
+            book.spine = ["nav"] + chapters
+            out_path = "%s.epub" % book_title
+            print("Saving book to %s" % out_path)
+            epub.write_epub(out_path, book, {})
 
 
 asyncio.run(main())
