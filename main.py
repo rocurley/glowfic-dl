@@ -1,5 +1,4 @@
 from bs4 import BeautifulSoup
-import requests
 from ebooklib import epub
 from tqdm.asyncio import tqdm
 import sys
@@ -12,7 +11,6 @@ import aiohttp
 # * Split large chapers somehow
 # * Download posts, continuities &c explicitly, rather than automatically
 #   advancing via next post
-# * Strip out requests
 # * Better kobo handling
 # * Rewrite internal links
 # * Less bad covers
@@ -104,9 +102,9 @@ def render_posts(posts, image_map, authors):
     return out
 
 
-def download_chapter(url, image_map, authors):
-    resp = requests.get(url, params={"view": "flat"})
-    soup = BeautifulSoup(resp.text, "html.parser")
+async def download_chapter(session, url, image_map, authors):
+    resp = await session.get(url, params={"view": "flat"})
+    soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
     posts = soup.find_all("div", "post-container")
     title = soup.find("span", id="post-title").text.strip()
@@ -115,12 +113,12 @@ def download_chapter(url, image_map, authors):
     return (title, str(posts_html))
 
 
-def find_all_urls(url):
+async def find_all_urls(session, url):
     urls = []
     while True:
         urls.append(url)
-        resp = requests.get(url)
-        soup = BeautifulSoup(resp.text, "html.parser")
+        resp = await session.get(url)
+        soup = BeautifulSoup(await resp.text(), "html.parser")
         resp.close()
         next_buttons = [
             div
@@ -148,57 +146,63 @@ async def download_image(session, url, id):
         return None
 
 
-async def download_images(image_map):
-    async with aiohttp.ClientSession() as session:
-        in_flight = []
-        for (k, v) in image_map.map.items():
-            in_flight.append(download_image(session, k, v))
-        return [image for image in await tqdm.gather(*in_flight) if image is not None]
+async def download_images(session, image_map):
+    in_flight = []
+    for (k, v) in image_map.map.items():
+        in_flight.append(download_image(session, k, v))
+    return [image for image in await tqdm.gather(*in_flight) if image is not None]
 
 
-def main():
-    url = sys.argv[1]
-    urls = find_all_urls(url)
-    print("Found %i chapters" % len(urls))
+async def main():
+    conn = aiohttp.TCPConnector(limit_per_host=6)
+    async with aiohttp.ClientSession(connector=conn) as session:
+        url = sys.argv[1]
+        urls = await find_all_urls(session, url)
+        print("Found %i chapters" % len(urls))
 
-    book = epub.EpubBook()
-    image_map = ImageMap()
-    authors = OrderedDict()
+        book = epub.EpubBook()
+        image_map = ImageMap()
+        authors = OrderedDict()
 
-    chapters = []
-    for (i, url) in enumerate(urls):
-        (title, chapter_content) = download_chapter(url, image_map, authors)
-        if i == 0:
-            book.set_title(title)
-            book_title = title
-        chapter = epub.EpubHtml(title=title, file_name="chapter%i.html" % i)
-        chapter.content = chapter_content
-        chapter.add_link(href="style.css", rel="stylesheet", type="text/css")
-        book.add_item(chapter)
-        chapters.append(chapter)
+        chapters = []
+        for (i, url) in enumerate(urls):
+            (title, chapter_content) = await download_chapter(
+                session, url, image_map, authors
+            )
+            if i == 0:
+                book.set_title(title)
+                book_title = title
+            chapter = epub.EpubHtml(title=title, file_name="chapter%i.html" % i)
+            chapter.content = chapter_content
+            chapter.add_link(href="style.css", rel="stylesheet", type="text/css")
+            book.add_item(chapter)
+            chapters.append(chapter)
 
-    style = epub.EpubItem(
-        uid="style", file_name="style.css", media_type="text/css", content=stylesheet
-    )
-    book.add_item(style)
+        style = epub.EpubItem(
+            uid="style",
+            file_name="style.css",
+            media_type="text/css",
+            content=stylesheet,
+        )
+        book.add_item(style)
 
-    print("Downloading images")
-    images = asyncio.run(download_images(image_map))
+        print("Downloading images")
+        images = await download_images(session, image_map)
 
-    for image in images:
-        book.add_item(image)
+        for image in images:
+            book.add_item(image)
 
-    for author in authors.keys():
-        book.add_author(author)
+        for author in authors.keys():
+            book.add_author(author)
 
-    book.toc = chapters
-    book.add_item(epub.EpubNcx())
-    book.add_item(epub.EpubNav())
+        book.toc = chapters
+        book.add_item(epub.EpubNcx())
+        book.add_item(epub.EpubNav())
 
-    book.spine = ["nav"] + chapters
-    out_path = "%s.epub" % book_title
-    print("Saving book to %s" % out_path)
-    epub.write_epub(out_path, book, {})
+        book.spine = ["nav"] + chapters
+        out_path = "%s.epub" % book_title
+        print("Saving book to %s" % out_path)
+        epub.write_epub(out_path, book, {})
 
 
-main()
+asyncio.run(main())
