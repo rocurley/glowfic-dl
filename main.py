@@ -3,7 +3,7 @@ import requests
 from ebooklib import epub
 from tqdm import tqdm
 import sys
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from collections import OrderedDict
 
 
@@ -12,12 +12,13 @@ class ImageMap:
         self.map = {}
         self.next = 0
 
-    def insert(self, path):
-        if path not in self.map:
+    def insert(self, url):
+        if url not in self.map:
+            path = urlparse(url).path
             ext = path.split(".")[-1]
-            self.map[path] = "img%i.%s" % (self.next, ext)
+            self.map[url] = "img%i.%s" % (self.next, ext)
             self.next += 1
-        return self.map[path]
+        return self.map[url]
 
 
 def render_post(post, image_map):
@@ -131,7 +132,6 @@ def main():
     authors = OrderedDict()
 
     chapters = []
-    book_tile = None
     for (i, url) in enumerate(urls):
         (title, chapter_content) = download_chapter(url, image_map, authors)
         if i == 0:
