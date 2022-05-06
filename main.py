@@ -9,7 +9,6 @@ import aiohttp
 import aiolimiter
 
 # TODO:
-# * Split large chapers somehow
 # * Better kobo handling
 # * Rewrite internal links
 # * Less bad covers
@@ -90,15 +89,25 @@ output_template = """
 </html>
 """
 
+SECTION_SIZE_LIMIT = 200000
+
 
 def render_posts(posts, image_map, authors):
     out = BeautifulSoup(output_template, "html.parser")
     body = out.find("div")
+    size = 0
     for post in posts:
         (rendered, author) = render_post(post, image_map)
+        post_size = len(rendered.encode())
+        if size + post_size > SECTION_SIZE_LIMIT and size > 0:
+            yield out
+            out = BeautifulSoup(output_template, "html.parser")
+            body = out.find("div")
+            size = 0
+        size += post_size
         body.append(rendered)
         authors[author] = True
-    return out
+    yield out
 
 
 async def download_chapter(session, limiter, i, url, image_map, authors):
@@ -108,11 +117,13 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
     resp.close()
     posts = soup.find_all("div", "post-container")
     title = soup.find("span", id="post-title").text.strip()
-    posts_html = render_posts(posts, image_map, authors)
-    chapter = epub.EpubHtml(title=title, file_name="chapter%i.html" % i)
-    chapter.content = str(posts_html)
-    chapter.add_link(href="style.css", rel="stylesheet", type="text/css")
-    return chapter
+    sections = []
+    for (j, section_html) in enumerate(render_posts(posts, image_map, authors)):
+        section = epub.EpubHtml(title=title, file_name="chapter%i_%i.html" % (i, j))
+        section.content = str(section_html)
+        section.add_link(href="style.css", rel="stylesheet", type="text/css")
+        sections.append(section)
+    return sections
 
 
 GLOWFIC_ROOT = "https://glowfic.com"
@@ -176,9 +187,10 @@ async def main():
                 ]
             )
             for chapter in chapters:
-                book.add_item(chapter)
+                for section in chapter:
+                    book.add_item(section)
             if book_title is None:
-                book_title = chapters[0].title
+                book_title = chapters[0][0].title
             book.set_title(book_title)
 
             style = epub.EpubItem(
@@ -198,11 +210,13 @@ async def main():
             for author in authors.keys():
                 book.add_author(author)
 
-            book.toc = chapters
+            book.toc = [chapter[0] for chapter in chapters]
             book.add_item(epub.EpubNcx())
             book.add_item(epub.EpubNav())
 
-            book.spine = ["nav"] + chapters
+            book.spine = ["nav"] + [
+                section for section in chapter for chapter in chapters
+            ]
             out_path = "%s.epub" % book_title
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
