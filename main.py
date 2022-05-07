@@ -8,6 +8,7 @@ import asyncio
 import aiohttp
 import aiolimiter
 import os
+import re
 
 # TODO:
 # * Better kobo handling
@@ -50,6 +51,7 @@ def render_post(post, image_map):
 
     post_html = BeautifulSoup('<div class="post"></div>', "html.parser")
     post_div = post_html.find("div")
+    post_div.extend([post.a])  # for linking to this post
 
     image = post.find("img", "icon")
     if image:
@@ -118,13 +120,57 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
     resp.close()
     posts = soup.find_all("div", "post-container")
     title = validate_tag(soup.find("span", id="post-title"), soup).text.strip()
+    return (title, list(render_posts(posts, image_map, authors)))
+    """
     sections = []
     for (j, section_html) in enumerate(render_posts(posts, image_map, authors)):
-        section = epub.EpubHtml(title=title, file_name="chapter%i_%i.html" % (i, j))
+        file_name = "chapter%i_%i.html" % (i, j)
+        for a in section_html.find_all("div", "post").a:
+            anchor_sections[a.id] = file_name
+        section = epub.EpubHtml(title=title, file_name=file_name)
         section.content = str(section_html)
         section.add_link(href="style.css", rel="stylesheet", type="text/css")
         sections.append(section)
     return sections
+    """
+
+
+REPLY_RE = re.compile(r"/replies/\d*")
+
+
+def compile_chapters(chapters):
+    anchor_sections = {}
+    for (i, (title, sections)) in enumerate(chapters):
+        for (j, section_html) in enumerate(sections):
+            file_name = "chapter%i_%i.html" % (i, j)
+            for post in section_html.find_all("div", "post"):
+                print(post)
+                anchor_sections[post.a["id"]] = file_name
+    for (i, (title, sections)) in enumerate(chapters):
+        for (j, section_html) in enumerate(sections):
+            for a in section_html.find_all("a"):
+                if "href" not in a.attrs:
+                    continue
+                url = urlparse(a["href"])
+                # TODO: links to posts
+                if not REPLY_RE.match(url.path):
+                    print("Skipping", url.path)
+                    continue
+                if url.fragment in anchor_sections:
+                    a["href"] = url._replace(
+                        path=anchor_sections[url.fragment]
+                    ).geturl()
+                else:
+                    print("Skipping", url.path)
+    for (i, (title, sections)) in enumerate(chapters):
+        compiled_sections = []
+        for (j, section_html) in enumerate(sections):
+            file_name = "chapter%i_%i.html" % (i, j)
+            section = epub.EpubHtml(title=title, file_name=file_name)
+            section.content = str(section_html)
+            section.add_link(href="style.css", rel="stylesheet", type="text/css")
+            compiled_sections.append(section)
+        yield compiled_sections
 
 
 def validate_tag(tag, soup):
@@ -215,6 +261,7 @@ async def main():
                     for (i, url) in enumerate(urls)
                 ]
             )
+            chapters = list(compile_chapters(chapters))
             for chapter in chapters:
                 for section in chapter:
                     book.add_item(section)
