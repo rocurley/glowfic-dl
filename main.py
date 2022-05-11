@@ -119,7 +119,8 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
     title = validate_tag(soup.find("span", id="post-title"), soup).text.strip()
     sections = []
     for (j, section_html) in enumerate(render_posts(posts, image_map, authors)):
-        section = epub.EpubHtml(title=title, file_name="chapter%i_%i.html" % (i, j))
+        filename = "chapter%i_%i.html" % (i, j)
+        section = epub.EpubHtml(title=title, file_name=filename)
         section.content = str(section_html)
         section.add_link(href="style.css", rel="stylesheet", type="text/css")
         sections.append(section)
@@ -227,7 +228,7 @@ async def main():
             book.add_item(epub.EpubNav())
 
             book.spine = ["nav"] + [
-                section for section in chapter for chapter in chapters
+                section for chapter in chapters for section in chapter
             ]
             out_path = "%s.epub" % book_title
             print("Saving book to %s" % out_path)
