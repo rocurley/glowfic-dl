@@ -152,7 +152,7 @@ async def get_post_urls_and_title(session, limiter, url):
             "td", "post-subject"
         )
         posts = [urljoin(GLOWFIC_ROOT, row.find("a")["href"]) for row in rows]
-        title = soup.find("th", "table-title").text.strip()
+        title = soup.find("th", "table-title").contents[0].strip()
         return (title, posts)
 
 
@@ -193,7 +193,6 @@ async def main():
                 )
             cookies[COOKIE_NAME] = cookie.strip()
     slow_conn = aiohttp.TCPConnector(limit_per_host=1)
-    print(cookies)
     async with aiohttp.ClientSession(
         connector=slow_conn, cookies=cookies
     ) as slow_session:
