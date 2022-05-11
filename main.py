@@ -13,6 +13,7 @@ import re
 # TODO:
 # * Better kobo handling
 # * Rewrite internal links
+#   Include linkbacks at the end of the thing that was linked to, eg: "This post was linked to from reply #114 of Mad investor chaos". <a>Return there</a>.
 # * Less bad covers
 
 
