@@ -7,7 +7,6 @@ from collections import OrderedDict
 import asyncio
 import aiohttp
 import aiolimiter
-import os
 
 # TODO:
 # * Better kobo handling
@@ -177,25 +176,9 @@ async def download_images(session, image_map):
     return [image for image in await tqdm.gather(*in_flight) if image is not None]
 
 
-COOKIE_NAME = "_glowfic_constellation_production"
-
-
 async def main():
-    cookies = {}
-    if os.path.exists("cookie"):
-        with open("cookie") as fin:
-            raw = fin.read()
-            (name, cookie) = raw.split("=")
-            if name != COOKIE_NAME:
-                raise ValueError(
-                    'cookie file must start with "%s=" (no quotes)' % COOKIE_NAME
-                )
-            cookies[COOKIE_NAME] = cookie.strip()
     slow_conn = aiohttp.TCPConnector(limit_per_host=1)
-    print(cookies)
-    async with aiohttp.ClientSession(
-        connector=slow_conn, cookies=cookies
-    ) as slow_session:
+    async with aiohttp.ClientSession(connector=slow_conn) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
             limiter = aiolimiter.AsyncLimiter(1, 1)
             url = sys.argv[1]
