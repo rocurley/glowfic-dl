@@ -8,6 +8,8 @@ import asyncio
 import aiohttp
 import aiolimiter
 import os
+import streamlit as st
+import streamlit.components.v1 as components
 
 # TODO:
 # * Better kobo handling
@@ -54,7 +56,8 @@ def render_post(post, image_map):
     image = post.find("img", "icon")
     if image:
         local_image = BeautifulSoup('<img class="icon"></img>', "html.parser")
-        local_image.find("img")["src"] = image_map.insert(image["src"])
+        # Just hotlink to the image, instead of downloading it
+        local_image.find("img")["src"] = image["src"]
         post_div.extend([header, local_image] + content.contents)
     else:
         post_div.extend([header] + content.contents)
@@ -75,13 +78,14 @@ div.post {
     page-break-inside:avoid;
 }
 div.posts {
-    background: grey;
+    background: white;
 }
 """
 
-output_template = """
+output_template = f"""
 <html>
 <head>
+<style>{stylesheet}</style>
 </head>
 <body>
 <div class="posts">
@@ -125,6 +129,7 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
         section.content = str(section_html)
         section.add_link(href="style.css", rel="stylesheet", type="text/css")
         sections.append(section)
+        components.html(section.content, height=1000, scrolling=True)
     return sections
 
 
@@ -198,17 +203,18 @@ async def main():
     ) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
             limiter = aiolimiter.AsyncLimiter(1, 1)
-            url = sys.argv[1]
+            # url = sys.argv[1]
+            url = "https://glowfic.com/posts/5111"
             (book_title, urls) = await get_post_urls_and_title(
                 slow_session, limiter, url
             )
-            print("Found %i chapters" % len(urls))
+            # st.write("Found %i chapters" % len(urls))
 
             book = epub.EpubBook()
             image_map = ImageMap()
             authors = OrderedDict()
 
-            print("Downloading chapter texts")
+            # st.write("Downloading chapter texts")
             chapters = await tqdm.gather(
                 *[
                     download_chapter(slow_session, limiter, i, url, image_map, authors)
@@ -230,7 +236,7 @@ async def main():
             )
             book.add_item(style)
 
-            print("Downloading images")
+            # st.write("Downloading images")
             images = await download_images(fast_session, image_map)
 
             for image in images:
@@ -247,7 +253,7 @@ async def main():
                 section for chapter in chapters for section in chapter
             ]
             out_path = "%s.epub" % book_title
-            print("Saving book to %s" % out_path)
+            # st.write("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
 
 
