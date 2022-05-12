@@ -259,9 +259,13 @@ async def main():
             url = st.text_input(label="Glowfic URL", value=default_url)
             st.checkbox("Dark mode", value=False, key="dark_mode")
             if st.session_state.dark_mode:
-                st.write("(Also, try `Settings > Theme > Dark`)")
+                st.write("*Try `Settings > Theme > Dark` too!*")
 
-            st.write("*Made by [Austin](https://manifold.markets/Austin), based on [rocurley's code](https://github.com/rocurley/glowfic-dl)*")
+            st.write("""
+            ***
+            *Made by [Austin](https://manifold.markets/Austin), 
+            based on [rocurley's code](https://github.com/rocurley/glowfic-dl)*
+            """)
 
         (book_title, urls) = await get_post_urls_and_title(slow_session, url)
 
