@@ -125,41 +125,45 @@ def render_posts(posts, image_map, authors):
         authors[author] = True
     yield out
 
-async def get_html(session, url):
-    # st.write(f"Downloading {url}")
-    # Cache urls to disk using the md5 hash of the url
-    url_hash = hashlib.md5(url.encode()).hexdigest()
-    html = None
-    try:
-        with open(url_hash, "rb") as f:
-            html = pickle.load(f)
-            # st.write("Loaded from cache")
-    except FileNotFoundError:
-        # st.write("Downloading from internet")
-        pass
+CACHE_DIR = "cache"
+# Cache urls to disk using the sha256 hash of the url
+def cache_set(key, value):
+    hash = hashlib.sha3_256(key.encode()).hexdigest()
+    filename = os.path.join(CACHE_DIR, f'{hash}.cache')
+    pickle.dump(value, open(filename, "wb"))
 
+def cache_get(key):
+    hash = hashlib.sha3_256(key.encode()).hexdigest()
+    filename = os.path.join(CACHE_DIR, f'{hash}.cache')
+    try:
+        with open(filename, "rb") as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        return None
+
+async def get_html(session, url):
+    html = cache_get(url)
     if not html:
         resp = await session.get(url, params={"view": "flat"})
         html = await resp.text()
         resp.close()
-
-        pickle.dump(html, open(url_hash, "wb"))
-
+        cache_set(url, html)
     return html
 
 
-async def download_chapter(session, i, url, image_map, authors, container):
-    html = await get_html(session, url)
-    # Parsing here seems to be the slowest part.
-    # TODO: directly cache the output HTML for a given url
-    soup = BeautifulSoup(html, "lxml")
-    posts = soup.find_all("div", "post-container")
-    title = validate_tag(soup.find("span", id="post-title"), soup).text.strip()
-    sections = []
-    for (j, section_html) in enumerate(render_posts(posts, image_map, authors)):
-        with container:
-            with st.expander(f"{title} {i+1}.{j+1}", expanded=(i == 0 and j == 0)):
-                components.html(str(section_html), height=800, scrolling=True)
+async def download_chapter(session, i, url, image_map, authors):
+    key = f"{url}|||{i}"
+    sections = cache_get(key)
+    if not sections:
+        html = await get_html(session, url)
+        # Parsing here seems to be the slowest part.
+        soup = BeautifulSoup(html, "lxml")
+        posts = soup.find_all("div", "post-container")
+        title = validate_tag(soup.find("span", id="post-title"), soup).text.strip()
+        sections = []
+        for (j, section_html) in enumerate(render_posts(posts, image_map, authors)):
+            sections.append([f"{title} {i+1}.{j+1}", str(section_html)])
+        cache_set(key, sections)
     return sections
 
 
@@ -247,14 +251,19 @@ async def main():
         image_map = ImageMap()
         authors = OrderedDict()
 
-        container = st.container()
+        chapters = []
         with st.sidebar:
             chapters = await stqdm.gather(
                 *[
-                    download_chapter(slow_session, i, url, image_map, authors, container)
+                    download_chapter(slow_session, i, url, image_map, authors)
                     for (i, url) in enumerate(urls)
                 ]
             )
+        for chapter in chapters:
+            for (i, [title, html]) in enumerate(chapter):
+                with st.expander(title, expanded= i == 0):
+                    components.html(html, height=800, scrolling=True)
+
 
 
 asyncio.run(main())

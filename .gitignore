@@ -1,2 +1,4 @@
 *.epub
 cookie
+*.cache
+.DS_Store
