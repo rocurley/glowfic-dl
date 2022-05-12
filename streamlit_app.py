@@ -8,6 +8,10 @@ import asyncio
 import aiohttp
 import aiolimiter
 import os
+import pickle
+import hashlib
+import lxml
+import cchardet
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -47,17 +51,17 @@ def render_post(post, image_map):
     except AttributeError:
         author = None
     content = post.find("div", "post-content")
-    header = BeautifulSoup("<p><strong></strong></p>", "html.parser")
+    header = BeautifulSoup("<p><strong></strong></p>", "lxml")
     header.find("strong").string = " / ".join(
         [x for x in [character, screen_name, author] if x is not None]
     )
 
-    post_html = BeautifulSoup('<div class="post"></div>', "html.parser")
+    post_html = BeautifulSoup('<div class="post"></div>', "lxml")
     post_div = post_html.find("div")
 
     image = post.find("img", "icon")
     if image:
-        local_image = BeautifulSoup('<img class="icon"></img>', "html.parser")
+        local_image = BeautifulSoup('<img class="icon"></img>', "lxml")
         # Just hotlink to the image, instead of downloading it
         local_image.find("img")["src"] = image["src"]
         post_div.extend([header, local_image] + content.contents)
@@ -105,7 +109,7 @@ SECTION_SIZE_LIMIT = 200000
 
 
 def render_posts(posts, image_map, authors):
-    out = BeautifulSoup(output_template, "html.parser")
+    out = BeautifulSoup(output_template, "lxml")
     body = out.find("div")
     size = 0
     for post in posts:
@@ -113,7 +117,7 @@ def render_posts(posts, image_map, authors):
         post_size = len(rendered.encode())
         if size + post_size > SECTION_SIZE_LIMIT and size > 0:
             yield out
-            out = BeautifulSoup(output_template, "html.parser")
+            out = BeautifulSoup(output_template, "lxml")
             body = out.find("div")
             size = 0
         size += post_size
@@ -121,25 +125,41 @@ def render_posts(posts, image_map, authors):
         authors[author] = True
     yield out
 
+async def get_html(session, url):
+    # st.write(f"Downloading {url}")
+    # Cache urls to disk using the md5 hash of the url
+    url_hash = hashlib.md5(url.encode()).hexdigest()
+    html = None
+    try:
+        with open(url_hash, "rb") as f:
+            html = pickle.load(f)
+            # st.write("Loaded from cache")
+    except FileNotFoundError:
+        # st.write("Downloading from internet")
+        pass
+
+    if not html:
+        resp = await session.get(url, params={"view": "flat"})
+        html = await resp.text()
+        resp.close()
+
+        pickle.dump(html, open(url_hash, "wb"))
+
+    return html
+
 
 async def download_chapter(session, i, url, image_map, authors, container):
-    # Apparently this function prints `None` on Streamlit?
-    # await limiter.acquire()
-    resp = await session.get(url, params={"view": "flat"})
-    soup = BeautifulSoup(await resp.text(), "html.parser")
-    resp.close()
+    html = await get_html(session, url)
+    # Parsing here seems to be the slowest part.
+    # TODO: directly cache the output HTML for a given url
+    soup = BeautifulSoup(html, "lxml")
     posts = soup.find_all("div", "post-container")
     title = validate_tag(soup.find("span", id="post-title"), soup).text.strip()
     sections = []
     for (j, section_html) in enumerate(render_posts(posts, image_map, authors)):
-        filename = "chapter%i_%i.html" % (i, j)
-        section = epub.EpubHtml(title=f"{title} {i+1}.{j+1}", file_name=filename)
-        section.content = str(section_html)
-        section.add_link(href="style.css", rel="stylesheet", type="text/css")
-        sections.append(section)
         with container:
-            with st.expander(section.title, expanded=(i == 0 and j == 0)):
-                components.html(section.content, height=800, scrolling=True)
+            with st.expander(f"{title} {i+1}.{j+1}", expanded=(i == 0 and j == 0)):
+                components.html(str(section_html), height=800, scrolling=True)
     return sections
 
 
@@ -160,9 +180,8 @@ async def get_post_urls_and_title(session, url):
     if "posts" in url:
         return (None, [url])
     if "board_sections" in url or "boards" in url:
-        # await limiter.acquire()
-        resp = await session.get(url)
-        soup = BeautifulSoup(await resp.text(), "html.parser")
+        html = await get_html(session, url)
+        soup = BeautifulSoup(html, "lxml")
         rows = validate_tag(soup.find("div", id="content"), soup).find_all(
             "td", "post-subject"
         )
@@ -230,7 +249,7 @@ async def main():
 
         container = st.container()
         with st.sidebar:
-            _results = await stqdm.gather(
+            chapters = await stqdm.gather(
                 *[
                     download_chapter(slow_session, i, url, image_map, authors, container)
                     for (i, url) in enumerate(urls)
