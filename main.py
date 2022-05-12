@@ -8,6 +8,7 @@ import asyncio
 import aiohttp
 import aiolimiter
 import os
+
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -76,6 +77,7 @@ div.post {
     margin: 0.5em;
     background: white;
     page-break-inside:avoid;
+    font-family: 'Lora', serif;
 }
 div.posts {
     background: white;
@@ -85,6 +87,9 @@ div.posts {
 output_template = f"""
 <html>
 <head>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;700&display=swap" rel="stylesheet">
 <style>{stylesheet}</style>
 </head>
 <body>
@@ -116,6 +121,7 @@ def render_posts(posts, image_map, authors):
 
 
 async def download_chapter(session, limiter, i, url, image_map, authors):
+    # Apparently this function prints `None` on Streamlit?
     await limiter.acquire()
     resp = await session.get(url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
@@ -129,7 +135,7 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
         section.content = str(section_html)
         section.add_link(href="style.css", rel="stylesheet", type="text/css")
         sections.append(section)
-        components.html(section.content, height=1000, scrolling=True)
+        components.html(section.content, height=20000)
     return sections
 
 
