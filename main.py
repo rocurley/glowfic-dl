@@ -195,6 +195,7 @@ async def download_images(session, image_map):
 
 COOKIE_NAME = "_glowfic_constellation_production"
 
+st.set_page_config(page_title="Glowflow Reader", page_icon="🌟")
 params = st.experimental_get_query_params()
 
 async def main():
@@ -218,6 +219,8 @@ async def main():
         default_url = f"https://glowfic.com/posts/{post}"
         st.sidebar.write("# Glowflow Reader")
         url = st.sidebar.text_input(label="Glowfic URL", value=default_url)
+
+        st.sidebar.write("*Made by [Austin](https://manifold.markets/Austin), who stole [rocurley's code](https://github.com/rocurley/glowfic-dl)*")
 
         (book_title, urls) = await get_post_urls_and_title(slow_session, url)
 
