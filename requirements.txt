@@ -1,0 +1,5 @@
+ebooklib
+tqdm
+bs4
+aiohttp
+aiolimiter
