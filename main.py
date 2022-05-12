@@ -78,6 +78,7 @@ div.post {
     background: white;
     page-break-inside:avoid;
     font-family: 'Lora', serif;
+    font-size: 1.1em;
 }
 div.posts {
     background: white;
@@ -120,9 +121,9 @@ def render_posts(posts, image_map, authors):
     yield out
 
 
-async def download_chapter(session, limiter, i, url, image_map, authors):
+async def download_chapter(session, i, url, image_map, authors):
     # Apparently this function prints `None` on Streamlit?
-    await limiter.acquire()
+    # await limiter.acquire()
     resp = await session.get(url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
@@ -131,10 +132,11 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
     sections = []
     for (j, section_html) in enumerate(render_posts(posts, image_map, authors)):
         filename = "chapter%i_%i.html" % (i, j)
-        section = epub.EpubHtml(title=title, file_name=filename)
+        section = epub.EpubHtml(title=f"{title} {i+1}.{j+1}", file_name=filename)
         section.content = str(section_html)
         section.add_link(href="style.css", rel="stylesheet", type="text/css")
         sections.append(section)
+        st.write(f"### {section.title}")
         components.html(section.content, height=20000)
     return sections
 
@@ -152,11 +154,11 @@ def validate_tag(tag, soup):
 GLOWFIC_ROOT = "https://glowfic.com"
 
 
-async def get_post_urls_and_title(session, limiter, url):
+async def get_post_urls_and_title(session, url):
     if "posts" in url:
         return (None, [url])
     if "board_sections" in url or "boards" in url:
-        await limiter.acquire()
+        # await limiter.acquire()
         resp = await session.get(url)
         soup = BeautifulSoup(await resp.text(), "html.parser")
         rows = validate_tag(soup.find("div", id="content"), soup).find_all(
@@ -207,60 +209,30 @@ async def main():
     async with aiohttp.ClientSession(
         connector=slow_conn, cookies=cookies
     ) as slow_session:
-        async with aiohttp.ClientSession() as fast_session:
-            limiter = aiolimiter.AsyncLimiter(1, 1)
+    #     async with aiohttp.ClientSession() as fast_session:
+    #         limiter = aiolimiter.AsyncLimiter(1, 1)
             # url = sys.argv[1]
-            url = "https://glowfic.com/posts/5111"
-            (book_title, urls) = await get_post_urls_and_title(
-                slow_session, limiter, url
-            )
-            # st.write("Found %i chapters" % len(urls))
 
-            book = epub.EpubBook()
-            image_map = ImageMap()
-            authors = OrderedDict()
+        default_url = "https://glowfic.com/posts/5111"
+        url = st.sidebar.text_input(label="Glowfic URL", value=default_url)
+        (book_title, urls) = await get_post_urls_and_title(slow_session, url)
+        # st.write("Found %i chapters" % len(urls))
 
-            # st.write("Downloading chapter texts")
-            chapters = await tqdm.gather(
-                *[
-                    download_chapter(slow_session, limiter, i, url, image_map, authors)
-                    for (i, url) in enumerate(urls)
-                ]
-            )
-            for chapter in chapters:
-                for section in chapter:
-                    book.add_item(section)
-            if book_title is None:
-                book_title = chapters[0][0].title
-            book.set_title(book_title)
+        book = epub.EpubBook()
+        image_map = ImageMap()
+        authors = OrderedDict()
 
-            style = epub.EpubItem(
-                uid="style",
-                file_name="style.css",
-                media_type="text/css",
-                content=stylesheet,
-            )
-            book.add_item(style)
-
-            # st.write("Downloading images")
-            images = await download_images(fast_session, image_map)
-
-            for image in images:
-                book.add_item(image)
-
-            for author in authors.keys():
-                book.add_author(author)
-
-            book.toc = [chapter[0] for chapter in chapters]
-            book.add_item(epub.EpubNcx())
-            book.add_item(epub.EpubNav())
-
-            book.spine = ["nav"] + [
-                section for chapter in chapters for section in chapter
+        # st.write("Downloading chapter texts")
+        chapters = await tqdm.gather(
+            *[
+                download_chapter(slow_session, i, url, image_map, authors)
+                for (i, url) in enumerate(urls)
             ]
-            out_path = "%s.epub" % book_title
-            # st.write("Saving book to %s" % out_path)
-            epub.write_epub(out_path, book, {})
+        )
+        for chapter in chapters:
+            for section in chapter:
+                st.write(f"### {section.title}")
+                components.html(section.content, height=20000)
 
 
 asyncio.run(main())
