@@ -138,7 +138,7 @@ async def download_chapter(session, i, url, image_map, authors, container):
         section.add_link(href="style.css", rel="stylesheet", type="text/css")
         sections.append(section)
         with container:
-            with st.expander(section.title):
+            with st.expander(section.title, expanded=(i == 0 and j == 0)):
                 components.html(section.content, height=800, scrolling=True)
     return sections
 
@@ -195,6 +195,8 @@ async def download_images(session, image_map):
 
 COOKIE_NAME = "_glowfic_constellation_production"
 
+params = st.experimental_get_query_params()
+
 async def main():
     cookies = {}
     if os.path.exists("cookie"):
@@ -211,7 +213,9 @@ async def main():
         connector=slow_conn, cookies=cookies
     ) as slow_session:
 
-        default_url = "https://glowfic.com/posts/5111"
+        # Accept `?post=5111`; otherwise, default to Mad Investor Chaos
+        post = params["post"][0] if "post" in params else 4582 
+        default_url = f"https://glowfic.com/posts/{post}"
         st.sidebar.write("# Glowflow Reader")
         url = st.sidebar.text_input(label="Glowfic URL", value=default_url)
 
@@ -223,7 +227,7 @@ async def main():
 
         container = st.container()
         with st.sidebar:
-            await stqdm.gather(
+            _results = await stqdm.gather(
                 *[
                     download_chapter(slow_session, i, url, image_map, authors, container)
                     for (i, url) in enumerate(urls)
