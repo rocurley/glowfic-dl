@@ -137,7 +137,7 @@ async def download_chapter(session, i, url, image_map, authors):
         section.add_link(href="style.css", rel="stylesheet", type="text/css")
         sections.append(section)
         st.write(f"### {section.title}")
-        components.html(section.content, height=20000)
+        components.html(section.content, height=800, scrolling=True)
     return sections
 
 
@@ -193,7 +193,6 @@ async def download_images(session, image_map):
 
 COOKIE_NAME = "_glowfic_constellation_production"
 
-
 async def main():
     cookies = {}
     if os.path.exists("cookie"):
@@ -209,12 +208,11 @@ async def main():
     async with aiohttp.ClientSession(
         connector=slow_conn, cookies=cookies
     ) as slow_session:
-    #     async with aiohttp.ClientSession() as fast_session:
-    #         limiter = aiolimiter.AsyncLimiter(1, 1)
-            # url = sys.argv[1]
 
         default_url = "https://glowfic.com/posts/5111"
+        st.sidebar.write("# Glowfic Web Reader")
         url = st.sidebar.text_input(label="Glowfic URL", value=default_url)
+
         (book_title, urls) = await get_post_urls_and_title(slow_session, url)
         # st.write("Found %i chapters" % len(urls))
 
@@ -223,16 +221,13 @@ async def main():
         authors = OrderedDict()
 
         # st.write("Downloading chapter texts")
+        # TODO: Add tqdm to sidebar
         chapters = await tqdm.gather(
             *[
                 download_chapter(slow_session, i, url, image_map, authors)
                 for (i, url) in enumerate(urls)
             ]
         )
-        for chapter in chapters:
-            for section in chapter:
-                st.write(f"### {section.title}")
-                components.html(section.content, height=20000)
 
 
 asyncio.run(main())
