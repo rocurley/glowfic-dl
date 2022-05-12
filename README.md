@@ -14,8 +14,9 @@ streamlit run streamlit_app.py
 
 ## TODOs
 
-- [ ] Cache the posts on disk, so we don't have to fetch each time
-- [ ] Route `http://glowflow.io` to this page?
-- [ ] Support boards and continuities??
+- [x] Cache the posts on disk, so we don't have to fetch each time
+- [x] Route `http://glowflow.io` to this page?
+- [x] Support dark mode?
 - [ ] Trim down unneeded stuff from the ebook side of things
-- [ ] Support dark mode?
+  - [ ] OR combine back with ebook reader code, to add a one-click "download as Ebook" feature
+- [ ] Support boards and continuities??

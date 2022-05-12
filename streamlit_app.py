@@ -12,16 +12,11 @@ import pickle
 import hashlib
 import lxml
 import cchardet
+import re
 
 import streamlit as st
 import streamlit.components.v1 as components
 from stqdm import stqdm
-
-# TODO:
-# * Better kobo handling
-# * Rewrite internal links
-# * Less bad covers
-
 
 class ImageMap:
     def __init__(self):
@@ -85,23 +80,20 @@ div.post {
     font-family: 'Lora', serif;
     font-size: 1.1em;
 }
-div.posts {
-    background: white;
-}
 """
 
-output_template = f"""
+template = f"""
 <html>
-<head>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;700&display=swap" rel="stylesheet">
-<style>{stylesheet}</style>
-</head>
-<body>
-<div class="posts">
-</div>
-</body>
+    <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;700&display=swap" rel="stylesheet">
+        <style>{stylesheet}</style>
+    </head>
+    <body>
+        <div class="posts">
+        </div>
+    </body>
 </html>
 """
 
@@ -109,7 +101,7 @@ SECTION_SIZE_LIMIT = 200000
 
 
 def render_posts(posts, image_map, authors):
-    out = BeautifulSoup(output_template, "lxml")
+    out = BeautifulSoup(template, "lxml")
     body = out.find("div")
     size = 0
     for post in posts:
@@ -117,7 +109,7 @@ def render_posts(posts, image_map, authors):
         post_size = len(rendered.encode())
         if size + post_size > SECTION_SIZE_LIMIT and size > 0:
             yield out
-            out = BeautifulSoup(output_template, "lxml")
+            out = BeautifulSoup(template, "lxml")
             body = out.find("div")
             size = 0
         size += post_size
@@ -218,6 +210,27 @@ async def download_images(session, image_map):
 
 COOKIE_NAME = "_glowfic_constellation_production"
 
+# Inject the theme stylesheet right before `</head>` and return the new html
+def addTheme(html):
+    dark_mode = st.session_state.dark_mode
+    text_color = "#31333F" if not dark_mode else "#FAFAFA"
+    background_color = "#FFFFFF" if not dark_mode else "#0E1117"
+
+    theme = f"""
+    <style>
+    div.post {{
+        color: {text_color};
+        background: {background_color};
+    }}
+    div.posts {{
+        background: {background_color};
+    }}
+    </style>
+    """
+
+    # Fast version: using regex instead of BeautifulSoup
+    return re.sub(r"(</head>)", r"{}\n\1".format(theme), html, flags=re.MULTILINE)
+
 st.set_page_config(page_title="Glowflow Reader", page_icon="🌟")
 params = st.experimental_get_query_params()
 
@@ -240,10 +253,15 @@ async def main():
         # Accept `?post=5111`; otherwise, default to Mad Investor Chaos
         post = params["post"][0] if "post" in params else 4582 
         default_url = f"https://glowfic.com/posts/{post}"
-        st.sidebar.write("# Glowflow Reader")
-        url = st.sidebar.text_input(label="Glowfic URL", value=default_url)
 
-        st.sidebar.write("*Made by [Austin](https://manifold.markets/Austin), who stole [rocurley's code](https://github.com/rocurley/glowfic-dl)*")
+        with st.sidebar:
+            st.write("# Glowflow Reader")
+            url = st.text_input(label="Glowfic URL", value=default_url)
+            st.checkbox("Dark mode", value=False, key="dark_mode")
+            if st.session_state.dark_mode:
+                st.write("(Also, try `Settings > Theme > Dark`)")
+
+            st.write("*Made by [Austin](https://manifold.markets/Austin), based on [rocurley's code](https://github.com/rocurley/glowfic-dl)*")
 
         (book_title, urls) = await get_post_urls_and_title(slow_session, url)
 
@@ -262,7 +280,7 @@ async def main():
         for chapter in chapters:
             for (i, [title, html]) in enumerate(chapter):
                 with st.expander(title, expanded= i == 0):
-                    components.html(html, height=800, scrolling=True)
+                    components.html(addTheme(html), height=800, scrolling=True)
 
 
 
