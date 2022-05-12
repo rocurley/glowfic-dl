@@ -11,6 +11,7 @@ import os
 
 import streamlit as st
 import streamlit.components.v1 as components
+from stqdm import stqdm
 
 # TODO:
 # * Better kobo handling
@@ -121,7 +122,7 @@ def render_posts(posts, image_map, authors):
     yield out
 
 
-async def download_chapter(session, i, url, image_map, authors):
+async def download_chapter(session, i, url, image_map, authors, container):
     # Apparently this function prints `None` on Streamlit?
     # await limiter.acquire()
     resp = await session.get(url, params={"view": "flat"})
@@ -136,8 +137,9 @@ async def download_chapter(session, i, url, image_map, authors):
         section.content = str(section_html)
         section.add_link(href="style.css", rel="stylesheet", type="text/css")
         sections.append(section)
-        st.write(f"### {section.title}")
-        components.html(section.content, height=800, scrolling=True)
+        with container:
+            with st.expander(section.title):
+                components.html(section.content, height=800, scrolling=True)
     return sections
 
 
@@ -210,24 +212,23 @@ async def main():
     ) as slow_session:
 
         default_url = "https://glowfic.com/posts/5111"
-        st.sidebar.write("# Glowfic Web Reader")
+        st.sidebar.write("# Glowflow Reader")
         url = st.sidebar.text_input(label="Glowfic URL", value=default_url)
 
         (book_title, urls) = await get_post_urls_and_title(slow_session, url)
-        # st.write("Found %i chapters" % len(urls))
 
         book = epub.EpubBook()
         image_map = ImageMap()
         authors = OrderedDict()
 
-        # st.write("Downloading chapter texts")
-        # TODO: Add tqdm to sidebar
-        chapters = await tqdm.gather(
-            *[
-                download_chapter(slow_session, i, url, image_map, authors)
-                for (i, url) in enumerate(urls)
-            ]
-        )
+        container = st.container()
+        with st.sidebar:
+            await stqdm.gather(
+                *[
+                    download_chapter(slow_session, i, url, image_map, authors, container)
+                    for (i, url) in enumerate(urls)
+                ]
+            )
 
 
 asyncio.run(main())

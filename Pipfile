@@ -10,6 +10,7 @@ aiohttp = "*"
 aiolimiter = "*"
 streamlit = "*"
 EbookLib = "*"
+stqdm = "*"
 
 [dev-packages]
 
