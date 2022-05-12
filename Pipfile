@@ -1,0 +1,17 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+tqdm = "*"
+bs4 = "*"
+aiohttp = "*"
+aiolimiter = "*"
+streamlit = "*"
+EbookLib = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"
