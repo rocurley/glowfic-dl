@@ -11,8 +11,3 @@ aiolimiter = "*"
 streamlit = "*"
 EbookLib = "*"
 stqdm = "*"
-
-[dev-packages]
-
-[requires]
-python_version = "3.9"
