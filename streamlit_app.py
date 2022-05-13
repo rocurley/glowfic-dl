@@ -221,6 +221,7 @@ def addTheme(html):
     div.post {{
         color: {text_color};
         background: {background_color};
+        font-size: {st.session_state.font_size}em;
     }}
     div.posts {{
         background: {background_color};
@@ -233,6 +234,8 @@ def addTheme(html):
 
 st.set_page_config(page_title="Glowflow Reader", page_icon="🌟")
 params = st.experimental_get_query_params()
+width = None
+height = 800
 
 async def main():
     cookies = {}
@@ -257,9 +260,18 @@ async def main():
         with st.sidebar:
             st.write("# Glowflow Reader")
             url = st.text_input(label="Glowfic URL", value=default_url)
-            st.checkbox("Dark mode", value=False, key="dark_mode")
-            if st.session_state.dark_mode:
-                st.write("*Try `Settings > Theme > Dark` too!*")
+
+            with st.expander('Settings'):
+                st.checkbox("Dark mode", value=False, key="dark_mode")
+                if st.session_state.dark_mode:
+                    st.write("*Try `Settings > Theme > Dark` too!*")
+                
+                # Note: If width is set to None/0, then go full-width
+                height = st.slider("Height (px)", min_value=100, max_value=2000, value=800, step=40)
+                width = st.slider("Width (px)", min_value=0, max_value=2000, value=None, step=40)
+                st.slider("Font size (rem)", min_value=0.5, max_value=2.0, value=1.1, step=0.1, key="font_size")
+
+                
 
             st.write("""
             ***
@@ -284,7 +296,7 @@ async def main():
         for chapter in chapters:
             for (i, [title, html]) in enumerate(chapter):
                 with st.expander(title, expanded= i == 0):
-                    components.html(addTheme(html), height=800, scrolling=True)
+                    components.html(addTheme(html), width=width or None, height=height, scrolling=True)
 
 
 
