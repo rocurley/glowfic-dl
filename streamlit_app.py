@@ -215,6 +215,10 @@ def addTheme(html):
     dark_mode = st.session_state.dark_mode
     text_color = "#31333F" if not dark_mode else "#FAFAFA"
     background_color = "#FFFFFF" if not dark_mode else "#0E1117"
+    # A width of 0 = at most 600px wide
+    width = st.session_state.width
+    width = f"{width}px" if width else "100%"
+    max_width = "100%" if st.session_state.width else "600px"
 
     theme = f"""
     <style>
@@ -222,7 +226,8 @@ def addTheme(html):
         color: {text_color};
         background: {background_color};
         font-size: {st.session_state.font_size}em;
-        width: {st.session_state.width}px;
+        width: {width};
+        max-width: {max_width};
         margin: 0 auto;
     }}
     div.posts {{
