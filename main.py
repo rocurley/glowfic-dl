@@ -161,9 +161,6 @@ def compile_chapters(chapters):
             file_name = "chapter%i_%i.html" % (i, j)
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
-    for k in anchor_sections.keys():
-        if "posts" in k:
-            print(k)
     for (i, (title, sections)) in enumerate(chapters):
         for (j, section) in enumerate(sections):
             for a in section.html.find_all("a"):
@@ -181,7 +178,9 @@ def compile_chapters(chapters):
         compiled_sections = []
         for (j, section) in enumerate(sections):
             file_name = "chapter%i_%i.html" % (i, j)
-            compiled_section = epub.EpubHtml(title=title, file_name=file_name)
+            compiled_section = epub.EpubHtml(
+                title=title, file_name=file_name, media_type="application/xhtml+xml"
+            )
             compiled_section.content = str(section.html)
             compiled_section.add_link(
                 href="style.css", rel="stylesheet", type="text/css"
