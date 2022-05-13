@@ -97,7 +97,7 @@ template = f"""
 </html>
 """
 
-SECTION_SIZE_LIMIT = 200000
+SECTION_SIZE_LIMIT = 100000
 
 
 def render_posts(posts, image_map, authors):
@@ -125,6 +125,8 @@ def cache_set(key, value):
     pickle.dump(value, open(filename, "wb"))
 
 def cache_get(key):
+    st.session_state.cache_accessed.append(key)
+    # console.log(f"Cache accessed: {key}")
     hash = hashlib.sha3_256(key.encode()).hexdigest()
     filename = os.path.join(CACHE_DIR, f'{hash}.cache')
     try:
@@ -132,6 +134,18 @@ def cache_get(key):
             return pickle.load(f)
     except FileNotFoundError:
         return None
+
+def cache_clear(key):
+    hash = hashlib.sha3_256(key.encode()).hexdigest()
+    filename = os.path.join(CACHE_DIR, f'{hash}.cache')
+    try:
+        os.remove(filename)
+    except FileNotFoundError:
+        pass
+
+def cache_clear_all():
+    for key in st.session_state.cache_accessed:
+        cache_clear(key)
 
 async def get_html(session, url):
     html = cache_get(url)
@@ -241,6 +255,11 @@ def addTheme(html):
 
 st.set_page_config(page_title="Glowflow Reader", page_icon="🌟", layout="wide")
 params = st.experimental_get_query_params()
+try:
+    noop = lambda *args, **kwargs: None
+    noop(st.session_state.cache_accessed)
+except AttributeError:
+    st.session_state.cache_accessed = []
 
 async def main():
     cookies = {}
@@ -275,6 +294,8 @@ async def main():
                 st.slider("Box height (px)", min_value=100, max_value=2000, value=800, step=40,key="height")
                 st.slider("Text width (px)", min_value=0, max_value=2000, value=0, step=60, key="width")
                 st.slider("Font size (rem)", min_value=0.5, max_value=2.0, value=1.1, step=0.1, key="font_size")
+                if st.button("Clear cache"):
+                    cache_clear_all()
 
                 
 
