@@ -303,6 +303,8 @@ async def main():
             ***
             *Made by [Austin](https://manifold.markets/Austin), 
             based on [rocurley's code](https://github.com/rocurley/glowfic-dl)*
+
+            *Also: try [Glowfic to Epub](https://share.streamlit.io/akrolsmir/glowflow/main/epub.py)!*
             """)
 
         (book_title, urls) = await get_post_urls_and_title(slow_session, url)
