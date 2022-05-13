@@ -10,6 +10,9 @@ import aiolimiter
 import os
 import re
 
+import streamlit as st
+from stqdm import stqdm
+
 # TODO:
 # * Better kobo handling
 # * Rewrite internal links
@@ -228,7 +231,7 @@ async def download_image(session, url, id):
             )
             return item
     except (aiohttp.ClientError, asyncio.TimeoutError):
-        print("Failed to download %s" % url)
+        st.write("Failed to download %s" % url)
         return None
 
 
@@ -241,6 +244,22 @@ async def download_images(session, image_map):
 
 COOKIE_NAME = "_glowfic_constellation_production"
 
+st.set_page_config(page_title="Glowfic to Epub", page_icon="⬇️")
+params = st.experimental_get_query_params()
+
+with st.sidebar:
+    st.write("## Glowfic to Epub")
+    st.write("""
+    Turn any glowfic into an .epub:
+
+    - Post: https://glowfic.com/posts/5111
+    - Board: https://glowfic.com/board_sections/703
+    - Continuity: https://glowfic.com/boards/215
+
+    ***
+    *Made by [Austin](https://manifold.markets/Austin), 
+    based on [rocurley's code](https://github.com/rocurley/glowfic-dl)*
+    """)
 
 async def main():
     cookies = {}
@@ -259,18 +278,21 @@ async def main():
     ) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
             limiter = aiolimiter.AsyncLimiter(1, 1)
-            url = sys.argv[1]
+
+            post = params["post"][0] if "post" in params else 5111 
+            default_url = f"https://glowfic.com/posts/{post}"
+            url = st.text_input(label="Glowfic URL", value=default_url)
             (book_title, urls) = await get_post_urls_and_title(
                 slow_session, limiter, url
             )
-            print("Found %i chapters" % len(urls))
+            st.info("Found %i chapters..." % len(urls))
 
             book = epub.EpubBook()
             image_map = ImageMap()
             authors = OrderedDict()
 
-            print("Downloading chapter texts")
-            chapters = await tqdm.gather(
+            st.info("Downloading text...")
+            chapters = await stqdm.gather(
                 *[
                     download_chapter(slow_session, limiter, i, url, image_map, authors)
                     for (i, url) in enumerate(urls)
@@ -292,7 +314,7 @@ async def main():
             )
             book.add_item(style)
 
-            print("Downloading images")
+            st.info("Downloading images...")
             images = await download_images(fast_session, image_map)
 
             for image in images:
@@ -309,8 +331,14 @@ async def main():
                 section for chapter in chapters for section in chapter
             ]
             out_path = "%s.epub" % book_title
-            print("Saving book to %s" % out_path)
+            st.info(f"Saving book as {out_path}...")
             epub.write_epub(out_path, book, {})
+
+            # Create a button to download the file
+            with open(out_path, "rb") as f:
+                st.download_button(f"Download {out_path}", f, file_name=out_path)
+            
+            st.write("*Pro tip: [Calibre](https://calibre-ebook.com/) can convert .epub into a .azw3 for your Kindle*")
 
 
 asyncio.run(main())
