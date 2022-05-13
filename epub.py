@@ -239,7 +239,7 @@ async def download_images(session, image_map):
     in_flight = []
     for (k, v) in image_map.map.items():
         in_flight.append(download_image(session, k, v))
-    return [image for image in await tqdm.gather(*in_flight) if image is not None]
+    return [image for image in await stqdm.gather(*in_flight) if image is not None]
 
 
 COOKIE_NAME = "_glowfic_constellation_production"
