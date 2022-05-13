@@ -65,7 +65,7 @@ def render_post(post, image_map):
     permalink = post.find("img", title="Permalink", alt="Permalink").parent["href"]
     permalink_fragment = urlparse(permalink).fragment
     reply_anchor = post_html.new_tag("a", id=permalink_fragment)
-    post_div.extend(reply_anchor)  # for linking to this reply
+    post_div.extend([reply_anchor])  # for linking to this reply
 
     image = post.find("img", "icon")
     if image:
@@ -151,7 +151,7 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
     return (title, list(render_posts(posts, image_map, authors)))
 
 
-REPLY_RE = re.compile(r"/replies/\d*")
+REPLY_RE = re.compile(r"/(replies|posts)/\d*")
 
 
 def compile_chapters(chapters):
@@ -161,6 +161,9 @@ def compile_chapters(chapters):
             file_name = "chapter%i_%i.html" % (i, j)
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
+    for k in anchor_sections.keys():
+        if "posts" in k:
+            print(k)
     for (i, (title, sections)) in enumerate(chapters):
         for (j, section) in enumerate(sections):
             for a in section.html.find_all("a"):
@@ -168,14 +171,12 @@ def compile_chapters(chapters):
                     continue
                 raw_url = a["href"]
                 url = urlparse(raw_url)
-                if not REPLY_RE.match(url.path):
-                    print("Skipping", url.path)
-                    continue
-                if raw_url in anchor_sections:
-                    print("Rewriting", url.path)
+                if REPLY_RE.match(raw_url) and raw_url in anchor_sections:
                     a["href"] = url._replace(path=anchor_sections[raw_url]).geturl()
-                else:
-                    print("Skipping", url.path)
+                elif url.netloc == "":  # Glowfic link to something not included here
+                    a["href"] = url._replace(
+                        scheme="https", netloc="glowfic.com"
+                    ).geturl()
     for (i, (title, sections)) in enumerate(chapters):
         compiled_sections = []
         for (j, section) in enumerate(sections):
@@ -213,7 +214,7 @@ async def get_post_urls_and_title(session, limiter, url):
             "td", "post-subject"
         )
         posts = [urljoin(GLOWFIC_ROOT, row.find("a")["href"]) for row in rows]
-        title = soup.find("th", "table-title").text.strip()
+        title = soup.find("th", "table-title").contents[0].strip()
         return (title, posts)
 
 
@@ -254,7 +255,6 @@ async def main():
                 )
             cookies[COOKIE_NAME] = cookie.strip()
     slow_conn = aiohttp.TCPConnector(limit_per_host=1)
-    print(cookies)
     async with aiohttp.ClientSession(
         connector=slow_conn, cookies=cookies
     ) as slow_session:
@@ -307,7 +307,7 @@ async def main():
             book.add_item(epub.EpubNav())
 
             book.spine = ["nav"] + [
-                section for section in chapter for chapter in chapters
+                section for chapter in chapters for section in chapter
             ]
             out_path = "%s.epub" % book_title
             print("Saving book to %s" % out_path)
