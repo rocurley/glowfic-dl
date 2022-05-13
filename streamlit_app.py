@@ -222,6 +222,8 @@ def addTheme(html):
         color: {text_color};
         background: {background_color};
         font-size: {st.session_state.font_size}em;
+        width: {st.session_state.width}px;
+        margin: 0 auto;
     }}
     div.posts {{
         background: {background_color};
@@ -232,10 +234,8 @@ def addTheme(html):
     # Fast version: using regex instead of BeautifulSoup
     return re.sub(r"(</head>)", r"{}\n\1".format(theme), html, flags=re.MULTILINE)
 
-st.set_page_config(page_title="Glowflow Reader", page_icon="🌟")
+st.set_page_config(page_title="Glowflow Reader", page_icon="🌟", layout="wide")
 params = st.experimental_get_query_params()
-width = None
-height = 800
 
 async def main():
     cookies = {}
@@ -261,14 +261,14 @@ async def main():
             st.write("# Glowflow Reader")
             url = st.text_input(label="Glowfic URL", value=default_url)
 
-            with st.expander('Settings'):
+            with st.expander('Advanced'):
                 st.checkbox("Dark mode", value=False, key="dark_mode")
                 if st.session_state.dark_mode:
-                    st.write("*Try `Settings > Theme > Dark` too!*")
+                    st.info("Try `Settings > Theme > Dark` too!")
                 
                 # Note: If width is set to None/0, then go full-width
-                height = st.slider("Height (px)", min_value=100, max_value=2000, value=800, step=40)
-                width = st.slider("Width (px)", min_value=0, max_value=2000, value=None, step=40)
+                st.slider("Box height (px)", min_value=100, max_value=2000, value=800, step=40,key="height")
+                st.slider("Text width (px)", min_value=0, max_value=2000, value=660, step=60, key="width")
                 st.slider("Font size (rem)", min_value=0.5, max_value=2.0, value=1.1, step=0.1, key="font_size")
 
                 
@@ -296,7 +296,7 @@ async def main():
         for chapter in chapters:
             for (i, [title, html]) in enumerate(chapter):
                 with st.expander(title, expanded= i == 0):
-                    components.html(addTheme(html), width=width or None, height=height, scrolling=True)
+                    components.html(addTheme(html), width=None, height=st.session_state.height, scrolling=True)
 
 
 
