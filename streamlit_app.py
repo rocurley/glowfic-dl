@@ -268,7 +268,7 @@ async def main():
                 
                 # Note: If width is set to None/0, then go full-width
                 st.slider("Box height (px)", min_value=100, max_value=2000, value=800, step=40,key="height")
-                st.slider("Text width (px)", min_value=0, max_value=2000, value=660, step=60, key="width")
+                st.slider("Text width (px)", min_value=0, max_value=2000, value=0, step=60, key="width")
                 st.slider("Font size (rem)", min_value=0.5, max_value=2.0, value=1.1, step=0.1, key="font_size")
 
                 
