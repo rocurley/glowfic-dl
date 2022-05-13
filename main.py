@@ -13,7 +13,9 @@ import re
 # TODO:
 # * Better kobo handling
 # * Rewrite internal links
-#   Include linkbacks at the end of the thing that was linked to, eg: "This post was linked to from reply #114 of Mad investor chaos". <a>Return there</a>.
+#   Include linkbacks at the end of the thing that was linked to, eg: "This
+#   post was linked to from reply #114 of Mad investor chaos". <a>Return
+#   there</a>.
 # * Less bad covers
 
 
@@ -29,6 +31,14 @@ class ImageMap:
             self.map[url] = "img%i.%s" % (self.next, ext)
             self.next += 1
         return self.map[url]
+
+
+class RenderedPost:
+    def __init__(self, html, author, permalink, permalink_fragment):
+        self.html = html
+        self.author = author
+        self.permalink = permalink
+        self.permalink_fragment = permalink_fragment
 
 
 def render_post(post, image_map):
@@ -52,7 +62,10 @@ def render_post(post, image_map):
 
     post_html = BeautifulSoup('<div class="post"></div>', "html.parser")
     post_div = post_html.find("div")
-    post_div.extend([post.a])  # for linking to this post
+    permalink = post.find("img", title="Permalink", alt="Permalink").parent["href"]
+    permalink_fragment = urlparse(permalink).fragment
+    reply_anchor = post_html.new_tag("a", id=permalink_fragment)
+    post_div.extend(reply_anchor)  # for linking to this reply
 
     image = post.find("img", "icon")
     if image:
@@ -61,7 +74,12 @@ def render_post(post, image_map):
         post_div.extend([header, local_image] + content.contents)
     else:
         post_div.extend([header] + content.contents)
-    return (post_html, author)
+    return RenderedPost(
+        html=post_html,
+        author=author,
+        permalink=permalink,
+        permalink_fragment=permalink_fragment,
+    )
 
 
 stylesheet = """
@@ -96,21 +114,30 @@ output_template = """
 SECTION_SIZE_LIMIT = 200000
 
 
+class Section:
+    def __init__(self):
+        self.html = BeautifulSoup(output_template, "html.parser")
+        self.body = self.html.find("div")
+        self.size = 0
+        self.link_targets = []
+
+    def append(self, post):
+        post_size = len(post.html.encode())
+        self.size += post_size
+        self.body.append(post.html)
+        self.link_targets.append(post.permalink)
+
+
 def render_posts(posts, image_map, authors):
-    out = BeautifulSoup(output_template, "html.parser")
-    body = out.find("div")
-    size = 0
+    out = Section()
     for post in posts:
-        (rendered, author) = render_post(post, image_map)
-        post_size = len(rendered.encode())
-        if size + post_size > SECTION_SIZE_LIMIT and size > 0:
+        rendered = render_post(post, image_map)
+        post_size = len(rendered.html.encode())
+        if out.size + post_size > SECTION_SIZE_LIMIT and out.size > 0:
             yield out
-            out = BeautifulSoup(output_template, "html.parser")
-            body = out.find("div")
-            size = 0
-        size += post_size
-        body.append(rendered)
-        authors[author] = True
+            out = Section()
+        out.append(rendered)
+        authors[rendered.author] = True
     yield out
 
 
@@ -122,18 +149,6 @@ async def download_chapter(session, limiter, i, url, image_map, authors):
     posts = soup.find_all("div", "post-container")
     title = validate_tag(soup.find("span", id="post-title"), soup).text.strip()
     return (title, list(render_posts(posts, image_map, authors)))
-    """
-    sections = []
-    for (j, section_html) in enumerate(render_posts(posts, image_map, authors)):
-        file_name = "chapter%i_%i.html" % (i, j)
-        for a in section_html.find_all("div", "post").a:
-            anchor_sections[a.id] = file_name
-        section = epub.EpubHtml(title=title, file_name=file_name)
-        section.content = str(section_html)
-        section.add_link(href="style.css", rel="stylesheet", type="text/css")
-        sections.append(section)
-    return sections
-    """
 
 
 REPLY_RE = re.compile(r"/replies/\d*")
@@ -142,35 +157,35 @@ REPLY_RE = re.compile(r"/replies/\d*")
 def compile_chapters(chapters):
     anchor_sections = {}
     for (i, (title, sections)) in enumerate(chapters):
-        for (j, section_html) in enumerate(sections):
+        for (j, section) in enumerate(sections):
             file_name = "chapter%i_%i.html" % (i, j)
-            for post in section_html.find_all("div", "post"):
-                print(post)
-                anchor_sections[post.a["id"]] = file_name
+            for permalink in section.link_targets:
+                anchor_sections[permalink] = file_name
     for (i, (title, sections)) in enumerate(chapters):
-        for (j, section_html) in enumerate(sections):
-            for a in section_html.find_all("a"):
+        for (j, section) in enumerate(sections):
+            for a in section.html.find_all("a"):
                 if "href" not in a.attrs:
                     continue
-                url = urlparse(a["href"])
-                # TODO: links to posts
+                raw_url = a["href"]
+                url = urlparse(raw_url)
                 if not REPLY_RE.match(url.path):
                     print("Skipping", url.path)
                     continue
-                if url.fragment in anchor_sections:
-                    a["href"] = url._replace(
-                        path=anchor_sections[url.fragment]
-                    ).geturl()
+                if raw_url in anchor_sections:
+                    print("Rewriting", url.path)
+                    a["href"] = url._replace(path=anchor_sections[raw_url]).geturl()
                 else:
                     print("Skipping", url.path)
     for (i, (title, sections)) in enumerate(chapters):
         compiled_sections = []
-        for (j, section_html) in enumerate(sections):
+        for (j, section) in enumerate(sections):
             file_name = "chapter%i_%i.html" % (i, j)
-            section = epub.EpubHtml(title=title, file_name=file_name)
-            section.content = str(section_html)
-            section.add_link(href="style.css", rel="stylesheet", type="text/css")
-            compiled_sections.append(section)
+            compiled_section = epub.EpubHtml(title=title, file_name=file_name)
+            compiled_section.content = str(section.html)
+            compiled_section.add_link(
+                href="style.css", rel="stylesheet", type="text/css"
+            )
+            compiled_sections.append(compiled_section)
         yield compiled_sections
 
 
