@@ -223,6 +223,13 @@ def stamped_url_from_board_row(row):
     return StampedURL(url, ts)
 
 
+class BookSpec:
+    def __init__(self, stamped_urls, title):
+        self.stamped_urls = stamped_urls
+        self.title = title
+        self.last_update = max((stamped_url.stamp for stamped_url in stamped_urls))
+
+
 async def get_post_urls_and_title(session, limiter, url):
     if "posts" in url:
         api_url = "https://glowfic.com/api/v1%s" % urlparse(url).path
@@ -232,7 +239,8 @@ async def get_post_urls_and_title(session, limiter, url):
         ts = datetime.strptime(post_json["tagged_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(
             tzinfo=timezone.utc
         )
-        return (None, [StampedURL(url, ts)])
+        title = post_json["subject"]
+        return BookSpec(stamped_urls=[StampedURL(url, ts)], title=title)
     if "board_sections" in url or "boards" in url:
         await limiter.acquire()
         resp = await session.get(url)
@@ -240,9 +248,9 @@ async def get_post_urls_and_title(session, limiter, url):
         rows = validate_tag(soup.find("div", id="content"), soup).find_all(
             "td", "post-subject"
         )
-        posts = [stamped_url_from_board_row(row) for row in rows]
+        stamped_urls = [stamped_url_from_board_row(row) for row in rows]
         title = soup.find("th", "table-title").contents[0].strip()
-        return (title, posts)
+        return BookSpec(title=title, stamped_urls=stamped_urls)
 
 
 async def download_image(session, url, id):
@@ -288,10 +296,8 @@ async def main():
         async with aiohttp.ClientSession() as fast_session:
             limiter = aiolimiter.AsyncLimiter(1, 1)
             url = sys.argv[1]
-            (book_title, urls) = await get_post_urls_and_title(
-                slow_session, limiter, url
-            )
-            print("Found %i chapters" % len(urls))
+            spec = await get_post_urls_and_title(slow_session, limiter, url)
+            print("Found %i chapters" % len(spec.stamped_urls))
 
             book = epub.EpubBook()
             image_map = ImageMap()
@@ -303,16 +309,14 @@ async def main():
                     download_chapter(
                         slow_session, limiter, i, stamped_url, image_map, authors
                     )
-                    for (i, stamped_url) in enumerate(urls)
+                    for (i, stamped_url) in enumerate(spec.stamped_urls)
                 ]
             )
             chapters = list(compile_chapters(chapters))
             for chapter in chapters:
                 for section in chapter:
                     book.add_item(section)
-            if book_title is None:
-                book_title = chapters[0][0].title
-            book.set_title(book_title)
+            book.set_title(spec.title)
 
             style = epub.EpubItem(
                 uid="style",
@@ -338,7 +342,7 @@ async def main():
             book.spine = ["nav"] + [
                 section for chapter in chapters for section in chapter
             ]
-            out_path = "%s.epub" % book_title
+            out_path = "%s.epub" % spec.title
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
 
