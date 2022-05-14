@@ -9,6 +9,8 @@ import aiohttp
 import aiolimiter
 import os
 import re
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 # TODO:
 # * Better kobo handling
@@ -141,9 +143,9 @@ def render_posts(posts, image_map, authors):
     yield out
 
 
-async def download_chapter(session, limiter, i, url, image_map, authors):
+async def download_chapter(session, limiter, i, stamped_url, image_map, authors):
     await limiter.acquire()
-    resp = await session.get(url, params={"view": "flat"})
+    resp = await session.get(stamped_url.url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
     posts = soup.find_all("div", "post-container")
@@ -200,11 +202,37 @@ def validate_tag(tag, soup):
 
 
 GLOWFIC_ROOT = "https://glowfic.com"
+GLOWFIC_TZ = ZoneInfo("America/New_York")
+
+
+class StampedURL:
+    def __init__(self, url, stamp):
+        self.url = url
+        self.stamp = stamp
+
+
+def stamped_url_from_board_row(row):
+    url = urljoin(GLOWFIC_ROOT, row.find("a")["href"])
+    ts_raw = (
+        next(row.parent.find("td", class_="post-time").strings).split("by")[0].strip()
+    )
+    ts_local = datetime.strptime(ts_raw, "%b %d, %Y  %I:%M %p").replace(
+        tzinfo=GLOWFIC_TZ
+    )
+    ts = ts_local.astimezone(timezone.utc)
+    return StampedURL(url, ts)
 
 
 async def get_post_urls_and_title(session, limiter, url):
     if "posts" in url:
-        return (None, [url])
+        api_url = "https://glowfic.com/api/v1%s" % urlparse(url).path
+        await limiter.acquire()
+        resp = await session.get(api_url)
+        post_json = await resp.json()
+        ts = datetime.strptime(post_json["tagged_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+            tzinfo=timezone.utc
+        )
+        return (None, [StampedURL(url, ts)])
     if "board_sections" in url or "boards" in url:
         await limiter.acquire()
         resp = await session.get(url)
@@ -212,7 +240,7 @@ async def get_post_urls_and_title(session, limiter, url):
         rows = validate_tag(soup.find("div", id="content"), soup).find_all(
             "td", "post-subject"
         )
-        posts = [urljoin(GLOWFIC_ROOT, row.find("a")["href"]) for row in rows]
+        posts = [stamped_url_from_board_row(row) for row in rows]
         title = soup.find("th", "table-title").contents[0].strip()
         return (title, posts)
 
@@ -272,8 +300,10 @@ async def main():
             print("Downloading chapter texts")
             chapters = await tqdm.gather(
                 *[
-                    download_chapter(slow_session, limiter, i, url, image_map, authors)
-                    for (i, url) in enumerate(urls)
+                    download_chapter(
+                        slow_session, limiter, i, stamped_url, image_map, authors
+                    )
+                    for (i, stamped_url) in enumerate(urls)
                 ]
             )
             chapters = list(compile_chapters(chapters))
