@@ -1,0 +1,16 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+tqdm = "*"
+bs4 = "*"
+aiohttp = "*"
+aiolimiter = "*"
+streamlit = "*"
+EbookLib = "*"
+stqdm = "*"
+lxml = "*"
+cchardet = "*"
+typing-extensions = "*"

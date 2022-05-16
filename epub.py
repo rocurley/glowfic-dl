@@ -9,8 +9,9 @@ import aiohttp
 import aiolimiter
 import os
 import re
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+
+import streamlit as st
+from stqdm import stqdm
 
 # TODO:
 # * Better kobo handling
@@ -143,9 +144,9 @@ def render_posts(posts, image_map, authors):
     yield out
 
 
-async def download_chapter(session, limiter, i, stamped_url, image_map, authors):
+async def download_chapter(session, limiter, i, url, image_map, authors):
     await limiter.acquire()
-    resp = await session.get(stamped_url.url, params={"view": "flat"})
+    resp = await session.get(url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
     posts = soup.find_all("div", "post-container")
@@ -202,45 +203,11 @@ def validate_tag(tag, soup):
 
 
 GLOWFIC_ROOT = "https://glowfic.com"
-GLOWFIC_TZ = ZoneInfo("America/New_York")
-
-
-class StampedURL:
-    def __init__(self, url, stamp):
-        self.url = url
-        self.stamp = stamp
-
-
-def stamped_url_from_board_row(row):
-    url = urljoin(GLOWFIC_ROOT, row.find("a")["href"])
-    ts_raw = (
-        next(row.parent.find("td", class_="post-time").strings).split("by")[0].strip()
-    )
-    ts_local = datetime.strptime(ts_raw, "%b %d, %Y  %I:%M %p").replace(
-        tzinfo=GLOWFIC_TZ
-    )
-    ts = ts_local.astimezone(timezone.utc)
-    return StampedURL(url, ts)
-
-
-class BookSpec:
-    def __init__(self, stamped_urls, title):
-        self.stamped_urls = stamped_urls
-        self.title = title
-        self.last_update = max((stamped_url.stamp for stamped_url in stamped_urls))
 
 
 async def get_post_urls_and_title(session, limiter, url):
     if "posts" in url:
-        api_url = "https://glowfic.com/api/v1%s" % urlparse(url).path
-        await limiter.acquire()
-        resp = await session.get(api_url)
-        post_json = await resp.json()
-        ts = datetime.strptime(post_json["tagged_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(
-            tzinfo=timezone.utc
-        )
-        title = post_json["subject"]
-        return BookSpec(stamped_urls=[StampedURL(url, ts)], title=title)
+        return (None, [url])
     if "board_sections" in url or "boards" in url:
         await limiter.acquire()
         resp = await session.get(url)
@@ -248,9 +215,9 @@ async def get_post_urls_and_title(session, limiter, url):
         rows = validate_tag(soup.find("div", id="content"), soup).find_all(
             "td", "post-subject"
         )
-        stamped_urls = [stamped_url_from_board_row(row) for row in rows]
+        posts = [urljoin(GLOWFIC_ROOT, row.find("a")["href"]) for row in rows]
         title = soup.find("th", "table-title").contents[0].strip()
-        return BookSpec(title=title, stamped_urls=stamped_urls)
+        return (title, posts)
 
 
 async def download_image(session, url, id):
@@ -264,7 +231,7 @@ async def download_image(session, url, id):
             )
             return item
     except (aiohttp.ClientError, asyncio.TimeoutError):
-        print("Failed to download %s" % url)
+        st.write("Failed to download %s" % url)
         return None
 
 
@@ -272,11 +239,27 @@ async def download_images(session, image_map):
     in_flight = []
     for (k, v) in image_map.map.items():
         in_flight.append(download_image(session, k, v))
-    return [image for image in await tqdm.gather(*in_flight) if image is not None]
+    return [image for image in await stqdm.gather(*in_flight) if image is not None]
 
 
 COOKIE_NAME = "_glowfic_constellation_production"
 
+st.set_page_config(page_title="Glowfic to Epub", page_icon="⬇️")
+params = st.experimental_get_query_params()
+
+with st.sidebar:
+    st.write("## Glowfic to Epub")
+    st.write("""
+    Turn any glowfic into an .epub:
+
+    - Post: https://glowfic.com/posts/5111
+    - Board: https://glowfic.com/board_sections/703
+    - Continuity: https://glowfic.com/boards/215
+
+    ***
+    *Made by [Austin](https://manifold.markets/Austin), 
+    based on [rocurley's code](https://github.com/rocurley/glowfic-dl)*
+    """)
 
 async def main():
     cookies = {}
@@ -295,28 +278,33 @@ async def main():
     ) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
             limiter = aiolimiter.AsyncLimiter(1, 1)
-            url = sys.argv[1]
-            spec = await get_post_urls_and_title(slow_session, limiter, url)
-            print("Found %i chapters" % len(spec.stamped_urls))
+
+            post = params["post"][0] if "post" in params else 5111 
+            default_url = f"https://glowfic.com/posts/{post}"
+            url = st.text_input(label="Glowfic URL", value=default_url)
+            (book_title, urls) = await get_post_urls_and_title(
+                slow_session, limiter, url
+            )
+            st.info("Found %i chapters..." % len(urls))
 
             book = epub.EpubBook()
             image_map = ImageMap()
             authors = OrderedDict()
 
-            print("Downloading chapter texts")
-            chapters = await tqdm.gather(
+            st.info("Downloading text...")
+            chapters = await stqdm.gather(
                 *[
-                    download_chapter(
-                        slow_session, limiter, i, stamped_url, image_map, authors
-                    )
-                    for (i, stamped_url) in enumerate(spec.stamped_urls)
+                    download_chapter(slow_session, limiter, i, url, image_map, authors)
+                    for (i, url) in enumerate(urls)
                 ]
             )
             chapters = list(compile_chapters(chapters))
             for chapter in chapters:
                 for section in chapter:
                     book.add_item(section)
-            book.set_title(spec.title)
+            if book_title is None:
+                book_title = chapters[0][0].title
+            book.set_title(book_title)
 
             style = epub.EpubItem(
                 uid="style",
@@ -326,7 +314,7 @@ async def main():
             )
             book.add_item(style)
 
-            print("Downloading images")
+            st.info("Downloading images...")
             images = await download_images(fast_session, image_map)
 
             for image in images:
@@ -342,9 +330,15 @@ async def main():
             book.spine = ["nav"] + [
                 section for chapter in chapters for section in chapter
             ]
-            out_path = "%s.epub" % spec.title
-            print("Saving book to %s" % out_path)
+            out_path = "%s.epub" % book_title
+            st.info(f"Saving book as {out_path}...")
             epub.write_epub(out_path, book, {})
+
+            # Create a button to download the file
+            with open(out_path, "rb") as f:
+                st.download_button(f"Download {out_path}", f, file_name=out_path)
+            
+            st.write("*Pro tip: [Calibre](https://calibre-ebook.com/) can convert .epub into a .azw3 for your Kindle*")
 
 
 asyncio.run(main())
