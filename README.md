@@ -2,13 +2,19 @@
 
 Downloads glowfic! Invoke it like so:
 ```
-python3 main.py https://glowfic.com/posts/5111 # download one post
-python3 main.py https://glowfic.com/board_sections/703 # download a board section
-python3 main.py https://glowfic.com/boards/215 # download a whole continuity
+./main.py https://glowfic.com/posts/5111 # download one post
+./main.py https://glowfic.com/board_sections/703 # download a board section
+./main.py https://glowfic.com/boards/215 # download a whole continuity
 ```
 If you get errors, make sure you've got the dependencies installed:
 ```
-pip3 install ebooklib tqdm bs4 aiohttp aiolimiter
+pip3 install ebooklib tqdm bs4 aiohttp aiolimiter tzdata
+```
+
+...or use a pipenv virtualenv for an extra guarantee of a clean install:
+```
+pipenv install
+pipenv shell
 ```
 
 If you want to access private posts, you can put your `_glowfic_constellation_production` cookie into a file called `cookie`.
