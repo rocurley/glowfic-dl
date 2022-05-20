@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from bs4 import BeautifulSoup
 from ebooklib import epub
 from tqdm.asyncio import tqdm
