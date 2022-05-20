@@ -5,6 +5,7 @@ import asyncio
 from collections import OrderedDict
 from datetime import datetime, timezone
 import os
+import platform
 import re
 from typing import Optional
 from urllib.parse import urljoin, urlparse
@@ -417,7 +418,6 @@ async def main():
             epub.write_epub(out_path, book, {})
 
 
-asyncio.set_event_loop_policy(
-    asyncio.WindowsSelectorEventLoopPolicy()
-)  # This may cause problems on non-Windows systems? Test further.
+if platform.system() == "Windows":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 asyncio.run(main())
