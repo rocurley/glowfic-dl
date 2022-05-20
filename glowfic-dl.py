@@ -57,13 +57,10 @@ img.icon {
 div.post {
     overflow: hidden;
     margin: 0.5em;
-    background: white;
+    outline: solid grey 8px;
     page-break-inside:avoid;
 }
-div.posts {
-    background: grey;
-}
-"""
+""".strip()
 
 output_template = """
 <html>
@@ -74,7 +71,7 @@ output_template = """
 </div>
 </body>
 </html>
-"""
+""".strip()
 
 
 #################
@@ -179,7 +176,6 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
     )
 
 
-# DONE
 def render_posts(
     posts: ResultSet, image_map: ImageMap, authors: OrderedDict
 ) -> Section:
@@ -195,7 +191,6 @@ def render_posts(
     yield out
 
 
-# DONE
 async def download_chapter(
     session: aiohttp.ClientSession,
     limiter: aiolimiter.AsyncLimiter,
@@ -212,7 +207,6 @@ async def download_chapter(
     return (title, list(render_posts(posts, image_map, authors)))
 
 
-# DONE
 def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.EpubHtml]:
     anchor_sections = {}
     for (i, (title, sections)) in enumerate(chapters):
@@ -248,7 +242,6 @@ def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.Epu
         yield compiled_sections
 
 
-# DONE
 def validate_tag(tag: Tag, soup: BeautifulSoup) -> Tag:
     if tag is not None:
         return tag
@@ -259,7 +252,6 @@ def validate_tag(tag: Tag, soup: BeautifulSoup) -> Tag:
         raise RuntimeError("Unknown error: tag missing")
 
 
-# DONE
 def stamped_url_from_board_row(row: Tag) -> StampedURL:
     url = urljoin(GLOWFIC_ROOT, row.find("a")["href"])
     ts_raw = (
@@ -272,7 +264,6 @@ def stamped_url_from_board_row(row: Tag) -> StampedURL:
     return StampedURL(url, ts)
 
 
-# DONE
 async def get_post_urls_and_title(
     session: aiohttp.ClientSession, limiter: aiolimiter.AsyncLimiter, url: str
 ) -> BookSpec:
@@ -298,7 +289,6 @@ async def get_post_urls_and_title(
         return BookSpec(title=title, stamped_urls=stamped_urls)
 
 
-# DONE
 async def download_image(
     session: aiohttp.ClientSession, url: str, id: str
 ) -> Optional[epub.EpubItem]:
@@ -316,7 +306,6 @@ async def download_image(
         return None
 
 
-# DONE
 async def download_images(
     session: aiohttp.ClientSession, image_map: ImageMap
 ) -> list[epub.EpubItem]:
@@ -336,7 +325,7 @@ def get_args() -> argparse.Namespace:
         description="Download glowfic from the Glowfic Constellation."
     )
 
-    parser.add_argument("url")
+    parser.add_argument("url", help = "glowfic post, section, or board URL")
 
     return parser.parse_args()
 
@@ -361,13 +350,12 @@ async def main():
     args = get_args()
     cookies = get_cookies()
 
+    limiter = aiolimiter.AsyncLimiter(1, 1)
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(limit_per_host=1), cookies=cookies
     ) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
-            limiter = aiolimiter.AsyncLimiter(1, 1)
-            url = args.url
-            spec = await get_post_urls_and_title(slow_session, limiter, url)
+            spec = await get_post_urls_and_title(slow_session, limiter, args.url)
             print("Found %i chapters" % len(spec.stamped_urls))
 
             book = epub.EpubBook()
@@ -413,6 +401,7 @@ async def main():
             book.spine = ["nav"] + [
                 section for chapter in chapters for section in chapter
             ]
+
             out_path = "%s.epub" % spec.title
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
