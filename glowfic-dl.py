@@ -6,7 +6,6 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 import os
 import re
-import sys
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -306,7 +305,9 @@ async def download_images(session, image_map):
 
 
 def get_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Download glowfic from the Glowfic Constellation.")
+    parser = argparse.ArgumentParser(
+        description="Download glowfic from the Glowfic Constellation."
+    )
 
     parser.add_argument("url")
 

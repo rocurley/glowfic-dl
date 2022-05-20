@@ -13,3 +13,6 @@ bs4 = "*"
 ebooklib = "*"
 tqdm = "*"
 tzdata = "*"
+
+[dev-packages]
+black = "*"
