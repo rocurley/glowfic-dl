@@ -1,16 +1,22 @@
-from bs4 import BeautifulSoup
-from ebooklib import epub
-from tqdm.asyncio import tqdm
-import sys
-from urllib.parse import urljoin, urlparse
-from collections import OrderedDict
+#!/usr/bin/env python3
+
+import argparse
 import asyncio
+from collections import OrderedDict
+from datetime import datetime, timezone
+import os
+import platform
+import re
+from typing import Optional
+from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
+
 import aiohttp
 import aiolimiter
-import os
-import re
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from bs4 import BeautifulSoup
+from bs4.element import Tag, ResultSet
+from ebooklib import epub
+from tqdm.asyncio import tqdm
 
 # TODO:
 # * Better kobo handling
@@ -21,12 +27,67 @@ from zoneinfo import ZoneInfo
 # * Less bad covers
 
 
+#################
+##   Globals   ##
+#################
+
+
+SECTION_SIZE_LIMIT = 200000
+
+REPLY_RE = re.compile(r"/(replies|posts)/\d*")
+
+GLOWFIC_ROOT = "https://glowfic.com"
+GLOWFIC_TZ = ZoneInfo("America/New_York")
+
+COOKIE_NAME = "_glowfic_constellation_production"
+
+
+###################
+##   Templates   ##
+###################
+
+
+stylesheet = """
+img.icon {
+    width:100px;
+    float:left;
+    margin-right: 1em;
+    margin-bottom: 1em;
+}
+div.post {
+    overflow: hidden;
+    padding: 0.5em;
+    border: solid grey 0.5em;
+    page-break-inside: avoid;
+}
+div.post + div.post {
+    margin-top: -0.5em;
+}
+""".strip()
+
+output_template = """
+<html>
+<head>
+</head>
+<body>
+<div class="posts">
+</div>
+</body>
+</html>
+""".strip()
+
+
+#################
+##   Classes   ##
+#################
+
+
 class ImageMap:
     def __init__(self):
         self.map = {}
         self.next = 0
 
-    def insert(self, url):
+    def insert(self, url: str):
         if url not in self.map:
             path = urlparse(url).path
             ext = path.split(".")[-1]
@@ -36,14 +97,48 @@ class ImageMap:
 
 
 class RenderedPost:
-    def __init__(self, html, author, permalink, permalink_fragment):
+    def __init__(
+        self, html: BeautifulSoup, author: str, permalink: str, permalink_fragment: str
+    ):
         self.html = html
         self.author = author
         self.permalink = permalink
         self.permalink_fragment = permalink_fragment
 
 
-def render_post(post, image_map):
+class Section:
+    def __init__(self):
+        self.html = BeautifulSoup(output_template, "html.parser")
+        self.body = self.html.find("div")
+        self.size = 0
+        self.link_targets = []
+
+    def append(self, post: RenderedPost):
+        post_size = len(post.html.encode())
+        self.size += post_size
+        self.body.append(post.html)
+        self.link_targets.append(post.permalink)
+
+
+class StampedURL:
+    def __init__(self, url: str, stamp: datetime):
+        self.url = url
+        self.stamp = stamp
+
+
+class BookSpec:
+    def __init__(self, stamped_urls: list[StampedURL], title: str):
+        self.stamped_urls = stamped_urls
+        self.title = title
+        self.last_update = max((stamped_url.stamp for stamped_url in stamped_urls))
+
+
+###########################
+##   Scrape and Render   ##
+###########################
+
+
+def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
     try:
         character = post.find("div", "post-character").text.strip()
     except AttributeError:
@@ -84,53 +179,9 @@ def render_post(post, image_map):
     )
 
 
-stylesheet = """
-img.icon {
-    width:100px;
-    float:left;
-    margin-right: 1em;
-    margin-bottom: 1em;
-}
-div.post {
-    overflow: hidden;
-    margin: 0.5em;
-    background: white;
-    page-break-inside:avoid;
-}
-div.posts {
-    background: grey;
-}
-"""
-
-output_template = """
-<html>
-<head>
-</head>
-<body>
-<div class="posts">
-</div>
-</body>
-</html>
-"""
-
-SECTION_SIZE_LIMIT = 200000
-
-
-class Section:
-    def __init__(self):
-        self.html = BeautifulSoup(output_template, "html.parser")
-        self.body = self.html.find("div")
-        self.size = 0
-        self.link_targets = []
-
-    def append(self, post):
-        post_size = len(post.html.encode())
-        self.size += post_size
-        self.body.append(post.html)
-        self.link_targets.append(post.permalink)
-
-
-def render_posts(posts, image_map, authors):
+def render_posts(
+    posts: ResultSet, image_map: ImageMap, authors: OrderedDict
+) -> Section:
     out = Section()
     for post in posts:
         rendered = render_post(post, image_map)
@@ -143,7 +194,13 @@ def render_posts(posts, image_map, authors):
     yield out
 
 
-async def download_chapter(session, limiter, i, stamped_url, image_map, authors):
+async def download_chapter(
+    session: aiohttp.ClientSession,
+    limiter: aiolimiter.AsyncLimiter,
+    stamped_url: StampedURL,
+    image_map: ImageMap,
+    authors: OrderedDict,
+) -> tuple[str, list[Section]]:
     await limiter.acquire()
     resp = await session.get(stamped_url.url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
@@ -153,10 +210,7 @@ async def download_chapter(session, limiter, i, stamped_url, image_map, authors)
     return (title, list(render_posts(posts, image_map, authors)))
 
 
-REPLY_RE = re.compile(r"/(replies|posts)/\d*")
-
-
-def compile_chapters(chapters):
+def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.EpubHtml]:
     anchor_sections = {}
     for (i, (title, sections)) in enumerate(chapters):
         for (j, section) in enumerate(sections):
@@ -191,7 +245,7 @@ def compile_chapters(chapters):
         yield compiled_sections
 
 
-def validate_tag(tag, soup):
+def validate_tag(tag: Tag, soup: BeautifulSoup) -> Tag:
     if tag is not None:
         return tag
     err = soup.find("div", "flash error")
@@ -201,17 +255,7 @@ def validate_tag(tag, soup):
         raise RuntimeError("Unknown error: tag missing")
 
 
-GLOWFIC_ROOT = "https://glowfic.com"
-GLOWFIC_TZ = ZoneInfo("America/New_York")
-
-
-class StampedURL:
-    def __init__(self, url, stamp):
-        self.url = url
-        self.stamp = stamp
-
-
-def stamped_url_from_board_row(row):
+def stamped_url_from_board_row(row: Tag) -> StampedURL:
     url = urljoin(GLOWFIC_ROOT, row.find("a")["href"])
     ts_raw = (
         next(row.parent.find("td", class_="post-time").strings).split("by")[0].strip()
@@ -223,14 +267,9 @@ def stamped_url_from_board_row(row):
     return StampedURL(url, ts)
 
 
-class BookSpec:
-    def __init__(self, stamped_urls, title):
-        self.stamped_urls = stamped_urls
-        self.title = title
-        self.last_update = max((stamped_url.stamp for stamped_url in stamped_urls))
-
-
-async def get_post_urls_and_title(session, limiter, url):
+async def get_post_urls_and_title(
+    session: aiohttp.ClientSession, limiter: aiolimiter.AsyncLimiter, url: str
+) -> BookSpec:
     if "posts" in url:
         api_url = "https://glowfic.com/api/v1%s" % urlparse(url).path
         await limiter.acquire()
@@ -253,7 +292,9 @@ async def get_post_urls_and_title(session, limiter, url):
         return BookSpec(title=title, stamped_urls=stamped_urls)
 
 
-async def download_image(session, url, id):
+async def download_image(
+    session: aiohttp.ClientSession, url: str, id: str
+) -> Optional[epub.EpubItem]:
     try:
         async with session.get(url, timeout=15) as resp:
             item = epub.EpubItem(
@@ -268,35 +309,56 @@ async def download_image(session, url, id):
         return None
 
 
-async def download_images(session, image_map):
+async def download_images(
+    session: aiohttp.ClientSession, image_map: ImageMap
+) -> list[epub.EpubItem]:
     in_flight = []
     for (k, v) in image_map.map.items():
         in_flight.append(download_image(session, k, v))
     return [image for image in await tqdm.gather(*in_flight) if image is not None]
 
 
-COOKIE_NAME = "_glowfic_constellation_production"
+##############
+##   Main   ##
+##############
 
 
-async def main():
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Download glowfic from the Glowfic Constellation."
+    )
+
+    parser.add_argument("url", help = "glowfic post, section, or board URL")
+
+    return parser.parse_args()
+
+
+def get_cookies() -> dict[str, str]:
     cookies = {}
+
     if os.path.exists("cookie"):
-        with open("cookie") as fin:
+        with open("cookie", "r") as fin:
             raw = fin.read()
             (name, cookie) = raw.split("=")
             if name != COOKIE_NAME:
                 raise ValueError(
-                    'cookie file must start with "%s=" (no quotes)' % COOKIE_NAME
+                    f'cookie file must start with "{COOKIE_NAME}=" (no quotes)'
                 )
             cookies[COOKIE_NAME] = cookie.strip()
-    slow_conn = aiohttp.TCPConnector(limit_per_host=1)
+
+    return cookies
+
+
+async def main():
+    args = get_args()
+    cookies = get_cookies()
+
+    limiter = aiolimiter.AsyncLimiter(1, 1)
     async with aiohttp.ClientSession(
-        connector=slow_conn, cookies=cookies
+        connector=aiohttp.TCPConnector(limit_per_host=1), cookies=cookies
     ) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
-            limiter = aiolimiter.AsyncLimiter(1, 1)
-            url = sys.argv[1]
-            spec = await get_post_urls_and_title(slow_session, limiter, url)
+            spec = await get_post_urls_and_title(slow_session, limiter, args.url)
             print("Found %i chapters" % len(spec.stamped_urls))
 
             book = epub.EpubBook()
@@ -307,7 +369,7 @@ async def main():
             chapters = await tqdm.gather(
                 *[
                     download_chapter(
-                        slow_session, limiter, i, stamped_url, image_map, authors
+                        slow_session, limiter, stamped_url, image_map, authors
                     )
                     for (i, stamped_url) in enumerate(spec.stamped_urls)
                 ]
@@ -342,9 +404,12 @@ async def main():
             book.spine = ["nav"] + [
                 section for chapter in chapters for section in chapter
             ]
+
             out_path = "%s.epub" % spec.title
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
 
 
+if platform.system() == "Windows":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 asyncio.run(main())
