@@ -1,18 +1,20 @@
 #!/usr/bin/env python
 
+import argparse
+import asyncio
+from collections import OrderedDict
+from datetime import datetime, timezone
+import os
+import re
+import sys
+from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
+
+import aiohttp
+import aiolimiter
 from bs4 import BeautifulSoup
 from ebooklib import epub
 from tqdm.asyncio import tqdm
-import sys
-from urllib.parse import urljoin, urlparse
-from collections import OrderedDict
-import asyncio
-import aiohttp
-import aiolimiter
-import os
-import re
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 # TODO:
 # * Better kobo handling
@@ -21,6 +23,61 @@ from zoneinfo import ZoneInfo
 #   post was linked to from reply #114 of Mad investor chaos". <a>Return
 #   there</a>.
 # * Less bad covers
+
+
+#################
+##   Globals   ##
+#################
+
+
+SECTION_SIZE_LIMIT = 200000
+
+REPLY_RE = re.compile(r"/(replies|posts)/\d*")
+
+GLOWFIC_ROOT = "https://glowfic.com"
+GLOWFIC_TZ = ZoneInfo("America/New_York")
+
+COOKIE_NAME = "_glowfic_constellation_production"
+
+
+###################
+##   Templates   ##
+###################
+
+
+stylesheet = """
+img.icon {
+    width:100px;
+    float:left;
+    margin-right: 1em;
+    margin-bottom: 1em;
+}
+div.post {
+    overflow: hidden;
+    margin: 0.5em;
+    background: white;
+    page-break-inside:avoid;
+}
+div.posts {
+    background: grey;
+}
+"""
+
+output_template = """
+<html>
+<head>
+</head>
+<body>
+<div class="posts">
+</div>
+</body>
+</html>
+"""
+
+
+#################
+##   Classes   ##
+#################
 
 
 class ImageMap:
@@ -43,6 +100,38 @@ class RenderedPost:
         self.author = author
         self.permalink = permalink
         self.permalink_fragment = permalink_fragment
+
+
+class Section:
+    def __init__(self):
+        self.html = BeautifulSoup(output_template, "html.parser")
+        self.body = self.html.find("div")
+        self.size = 0
+        self.link_targets = []
+
+    def append(self, post):
+        post_size = len(post.html.encode())
+        self.size += post_size
+        self.body.append(post.html)
+        self.link_targets.append(post.permalink)
+
+
+class StampedURL:
+    def __init__(self, url, stamp):
+        self.url = url
+        self.stamp = stamp
+
+
+class BookSpec:
+    def __init__(self, stamped_urls, title):
+        self.stamped_urls = stamped_urls
+        self.title = title
+        self.last_update = max((stamped_url.stamp for stamped_url in stamped_urls))
+
+
+###################
+##   Functions   ##
+###################
 
 
 def render_post(post, image_map):
@@ -86,52 +175,6 @@ def render_post(post, image_map):
     )
 
 
-stylesheet = """
-img.icon {
-    width:100px;
-    float:left;
-    margin-right: 1em;
-    margin-bottom: 1em;
-}
-div.post {
-    overflow: hidden;
-    margin: 0.5em;
-    background: white;
-    page-break-inside:avoid;
-}
-div.posts {
-    background: grey;
-}
-"""
-
-output_template = """
-<html>
-<head>
-</head>
-<body>
-<div class="posts">
-</div>
-</body>
-</html>
-"""
-
-SECTION_SIZE_LIMIT = 200000
-
-
-class Section:
-    def __init__(self):
-        self.html = BeautifulSoup(output_template, "html.parser")
-        self.body = self.html.find("div")
-        self.size = 0
-        self.link_targets = []
-
-    def append(self, post):
-        post_size = len(post.html.encode())
-        self.size += post_size
-        self.body.append(post.html)
-        self.link_targets.append(post.permalink)
-
-
 def render_posts(posts, image_map, authors):
     out = Section()
     for post in posts:
@@ -153,9 +196,6 @@ async def download_chapter(session, limiter, i, stamped_url, image_map, authors)
     posts = soup.find_all("div", "post-container")
     title = validate_tag(soup.find("span", id="post-title"), soup).text.strip()
     return (title, list(render_posts(posts, image_map, authors)))
-
-
-REPLY_RE = re.compile(r"/(replies|posts)/\d*")
 
 
 def compile_chapters(chapters):
@@ -203,16 +243,6 @@ def validate_tag(tag, soup):
         raise RuntimeError("Unknown error: tag missing")
 
 
-GLOWFIC_ROOT = "https://glowfic.com"
-GLOWFIC_TZ = ZoneInfo("America/New_York")
-
-
-class StampedURL:
-    def __init__(self, url, stamp):
-        self.url = url
-        self.stamp = stamp
-
-
 def stamped_url_from_board_row(row):
     url = urljoin(GLOWFIC_ROOT, row.find("a")["href"])
     ts_raw = (
@@ -223,13 +253,6 @@ def stamped_url_from_board_row(row):
     )
     ts = ts_local.astimezone(timezone.utc)
     return StampedURL(url, ts)
-
-
-class BookSpec:
-    def __init__(self, stamped_urls, title):
-        self.stamped_urls = stamped_urls
-        self.title = title
-        self.last_update = max((stamped_url.stamp for stamped_url in stamped_urls))
 
 
 async def get_post_urls_and_title(session, limiter, url):
@@ -277,11 +300,22 @@ async def download_images(session, image_map):
     return [image for image in await tqdm.gather(*in_flight) if image is not None]
 
 
-COOKIE_NAME = "_glowfic_constellation_production"
+##############
+##   Main   ##
+##############
 
 
-async def main():
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Download glowfic from the Glowfic Constellation.")
+
+    parser.add_argument("url")
+
+    return parser.parse_args()
+
+
+def get_cookies() -> dict[str, str]:
     cookies = {}
+
     if os.path.exists("cookie"):
         with open("cookie") as fin:
             raw = fin.read()
@@ -291,13 +325,22 @@ async def main():
                     'cookie file must start with "%s=" (no quotes)' % COOKIE_NAME
                 )
             cookies[COOKIE_NAME] = cookie.strip()
+
+    return cookies
+
+
+async def main():
+    args = get_args()
+    cookies = get_cookies()
+
     slow_conn = aiohttp.TCPConnector(limit_per_host=1)
+
     async with aiohttp.ClientSession(
         connector=slow_conn, cookies=cookies
     ) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
             limiter = aiolimiter.AsyncLimiter(1, 1)
-            url = sys.argv[1]
+            url = args.url
             spec = await get_post_urls_and_title(slow_session, limiter, url)
             print("Found %i chapters" % len(spec.stamped_urls))
 

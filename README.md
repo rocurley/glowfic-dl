@@ -2,16 +2,15 @@
 
 Downloads glowfic! Invoke it like so:
 ```
-./main.py https://glowfic.com/posts/5111 # download one post
-./main.py https://glowfic.com/board_sections/703 # download a board section
-./main.py https://glowfic.com/boards/215 # download a whole continuity
+./glowfic-dl.py https://glowfic.com/posts/5111 # download one post
+./glowfic-dl.py https://glowfic.com/board_sections/703 # download a board section
+./glowfic-dl.py https://glowfic.com/boards/215 # download a whole continuity
 ```
 If you get errors, make sure you've got the dependencies installed:
 ```
 pip3 install ebooklib tqdm bs4 aiohttp aiolimiter tzdata
 ```
-
-...or use a pipenv virtualenv for an extra guarantee of a clean install:
+...or use a pipenv virtualenv for an extra guarantee of a clean and functional install:
 ```
 pipenv install
 pipenv shell
