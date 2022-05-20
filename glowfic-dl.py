@@ -56,9 +56,12 @@ img.icon {
 }
 div.post {
     overflow: hidden;
-    margin: 0.5em;
-    outline: solid grey 8px;
-    page-break-inside:avoid;
+    padding: 0.5em;
+    border: solid grey 0.5em;
+    page-break-inside: avoid;
+}
+div.post + div.post {
+    margin-top: -0.5em;
 }
 """.strip()
 
