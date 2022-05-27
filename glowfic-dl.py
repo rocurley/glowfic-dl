@@ -60,9 +60,6 @@ div.post {
     border: solid grey 0.5em;
     page-break-inside: avoid;
 }
-div.post + div.post {
-    margin-top: -0.5em;
-}
 """.strip()
 
 output_template = """
@@ -328,7 +325,7 @@ def get_args() -> argparse.Namespace:
         description="Download glowfic from the Glowfic Constellation."
     )
 
-    parser.add_argument("url", help = "glowfic post, section, or board URL")
+    parser.add_argument("url", help="glowfic post, section, or board URL")
 
     return parser.parse_args()
 
