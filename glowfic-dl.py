@@ -84,11 +84,11 @@ class ImageMap:
         self.map = {}
         self.next = 0
 
-    def insert(self, url: str):
+    def insert(self, url: str) -> str:
         if url not in self.map:
             path = urlparse(url).path
             ext = path.split(".")[-1]
-            self.map[url] = "img%i.%s" % (self.next, ext)
+            self.map[url] = "Images/img%i.%s" % (self.next, ext)
             self.next += 1
         return self.map[url]
 
@@ -164,7 +164,7 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
     image = post.find("img", "icon")
     if image:
         local_image = BeautifulSoup('<img class="icon"></img>', "html.parser")
-        local_image.find("img")["src"] = image_map.insert(image["src"])
+        local_image.find("img")["src"] = "../%s" % image_map.insert(image["src"])
         post_div.extend([header, local_image] + content.contents)
     else:
         post_div.extend([header] + content.contents)
@@ -211,7 +211,7 @@ def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.Epu
     anchor_sections = {}
     for (i, (title, sections)) in enumerate(chapters):
         for (j, section) in enumerate(sections):
-            file_name = "chapter%i_%i.html" % (i, j)
+            file_name = "Text/chapter%i_%i.html" % (i, j)
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
     for (i, (title, sections)) in enumerate(chapters):
@@ -230,13 +230,13 @@ def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.Epu
     for (i, (title, sections)) in enumerate(chapters):
         compiled_sections = []
         for (j, section) in enumerate(sections):
-            file_name = "chapter%i_%i.html" % (i, j)
+            file_name = "Text/chapter%i_%i.html" % (i, j)
             compiled_section = epub.EpubHtml(
                 title=title, file_name=file_name, media_type="application/xhtml+xml"
             )
             compiled_section.content = str(section.html)
             compiled_section.add_link(
-                href="style.css", rel="stylesheet", type="text/css"
+                href="../style.css", rel="stylesheet", type="text/css"
             )
             compiled_sections.append(compiled_section)
         yield compiled_sections
@@ -339,7 +339,7 @@ def get_cookies() -> dict[str, str]:
             (name, cookie) = raw.split("=")
             if name != COOKIE_NAME:
                 raise ValueError(
-                    f'cookie file must start with "{COOKIE_NAME}=" (no quotes)'
+                    'cookie file must start with "%s=" (no quotes)' % COOKIE_NAME
                 )
             cookies[COOKIE_NAME] = cookie.strip()
 
