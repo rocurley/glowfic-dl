@@ -60,7 +60,7 @@ div.post {
     border: solid grey 0.5em;
     page-break-inside: avoid;
 }
-""".strip()
+""".lstrip()
 
 output_template = """
 <html>
@@ -71,7 +71,7 @@ output_template = """
 </div>
 </body>
 </html>
-""".strip()
+""".lstrip()
 
 
 #################
@@ -208,12 +208,18 @@ async def download_chapter(
 
 
 def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.EpubHtml]:
+    chapter_digits = len(str(len(chapters)))
     anchor_sections = {}
+
+    # Map permalinks to file names
     for (i, (title, sections)) in enumerate(chapters):
+        section_digits = len(str(len(sections)))
         for (j, section) in enumerate(sections):
-            file_name = "Text/chapter%i_%i.html" % (i, j)
+            file_name = "Text/%.*i_%s_%.*i.xhtml" % (chapter_digits, i + 1, title, section_digits, j)
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
+
+    # Replace external links with internal links where practical
     for (i, (title, sections)) in enumerate(chapters):
         for (j, section) in enumerate(sections):
             for a in section.html.find_all("a"):
@@ -227,10 +233,13 @@ def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.Epu
                     a["href"] = url._replace(
                         scheme="https", netloc="glowfic.com"
                     ).geturl()
+
+    # Yield one list of EpubHTML objects per chapter
     for (i, (title, sections)) in enumerate(chapters):
+        section_digits = len(str(len(sections)))
         compiled_sections = []
         for (j, section) in enumerate(sections):
-            file_name = "Text/chapter%i_%i.html" % (i, j)
+            file_name = "Text/%.*i_%s_%.*i.xhtml" % (chapter_digits, i + 1, title, section_digits, j)
             compiled_section = epub.EpubHtml(
                 title=title, file_name=file_name, media_type="application/xhtml+xml"
             )
