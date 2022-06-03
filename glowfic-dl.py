@@ -25,7 +25,17 @@ from tqdm.asyncio import tqdm
 #   post was linked to from reply #114 of Mad investor chaos". <a>Return
 #   there</a>.
 # * Less bad covers
+# * When taking in images of format other than PNG/JPEG/GIF/SVG, convert them
+#   to one of those formats, for EPUB specification compliance
+# * Download inline images too, not just icons
 
+# TODO (for the current PR):
+# * Figure out if there's any practical way to zero-pad icon file numbers
+# * Figure out if there's any practical way to tag icon titles with gallery and
+#   icon names
+# * Filter filenames which contain title information to ensure they're
+#   legitimate EPUB 3 filenames. <=255 bytes length in UTF-8, and no characters
+#   from the various banned ranges.
 
 #################
 ##   Globals   ##
@@ -88,7 +98,7 @@ class ImageMap:
         if url not in self.map:
             path = urlparse(url).path
             ext = path.split(".")[-1]
-            self.map[url] = "Images/img%i.%s" % (self.next, ext)
+            self.map[url] = "Images/icon%i.%s" % (self.next, ext)
             self.next += 1
         return self.map[url]
 
@@ -161,10 +171,10 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
     reply_anchor = post_html.new_tag("a", id=permalink_fragment)
     post_div.extend([reply_anchor])  # for linking to this reply
 
-    image = post.find("img", "icon")
-    if image:
+    icon = post.find("img", "icon")
+    if icon:
         local_image = BeautifulSoup('<img class="icon"></img>', "html.parser")
-        local_image.find("img")["src"] = "../%s" % image_map.insert(image["src"])
+        local_image.find("img")["src"] = "../%s" % image_map.insert(icon["src"])
         post_div.extend([header, local_image] + content.contents)
     else:
         post_div.extend([header] + content.contents)
