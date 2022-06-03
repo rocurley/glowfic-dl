@@ -225,7 +225,13 @@ def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.Epu
     for (i, (title, sections)) in enumerate(chapters):
         section_digits = len(str(len(sections)))
         for (j, section) in enumerate(sections):
-            file_name = "Text/%.*i_%s_%.*i.xhtml" % (chapter_digits, i + 1, title, section_digits, j)
+            file_name = "Text/%.*i_%s_%.*i.xhtml" % (
+                chapter_digits,
+                i + 1,
+                title,
+                section_digits,
+                j,
+            )
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
 
@@ -249,7 +255,13 @@ def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.Epu
         section_digits = len(str(len(sections)))
         compiled_sections = []
         for (j, section) in enumerate(sections):
-            file_name = "Text/%.*i_%s_%.*i.xhtml" % (chapter_digits, i + 1, title, section_digits, j)
+            file_name = "Text/%.*i_%s_%.*i.xhtml" % (
+                chapter_digits,
+                i + 1,
+                title,
+                section_digits,
+                j,
+            )
             compiled_section = epub.EpubHtml(
                 title=title, file_name=file_name, media_type="application/xhtml+xml"
             )
