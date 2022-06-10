@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import os
 import platform
 import re
-from typing import Optional
+from typing import Iterable, Optional
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -16,6 +16,7 @@ import aiolimiter
 from bs4 import BeautifulSoup
 from bs4.element import Tag, ResultSet
 from ebooklib import epub
+from lxml import etree
 from tqdm.asyncio import tqdm
 
 # TODO:
@@ -252,7 +253,7 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 
 def render_posts(
     posts: ResultSet, image_map: ImageMap, authors: OrderedDict
-) -> Section:
+) -> Iterable[Section]:
     out = Section()
     for post in posts:
         rendered = render_post(post, image_map)
@@ -281,7 +282,9 @@ async def download_chapter(
     return (title, list(render_posts(posts, image_map, authors)))
 
 
-def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.EpubHtml]:
+def compile_chapters(
+    chapters: list[tuple[str, list[Section]]]
+) -> Iterable[list[epub.EpubHtml]]:
     chapter_digits = len(str(len(chapters)))
     anchor_sections = {}
 
@@ -335,7 +338,13 @@ def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.Epu
             compiled_section = epub.EpubHtml(
                 title=title, file_name=file_name, media_type="application/xhtml+xml"
             )
-            compiled_section.content = str(section.html)
+            compiled_section.content = etree.tostring(
+                etree.fromstring(
+                    str(section.html), etree.XMLParser(remove_blank_text=True)
+                ),
+                encoding="unicode",
+                pretty_print=True,
+            )
             compiled_section.add_link(
                 href="../style.css", rel="stylesheet", type="text/css"
             )

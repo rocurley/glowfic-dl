@@ -8,7 +8,7 @@ Downloads glowfic! Invoke it like so:
 ```
 If you get errors, make sure you've got the dependencies installed:
 ```
-pip3 install ebooklib tqdm bs4 aiohttp aiolimiter tzdata
+pip3 install aiohttp aiolimiter bs4 ebooklib lxml tqdm tzdata
 ```
 ...or use a pipenv virtualenv for an extra guarantee of a clean and functional install:
 ```
