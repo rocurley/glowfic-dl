@@ -43,14 +43,14 @@ from tqdm.asyncio import tqdm
 
 FILENAME_BANNED_CHARS = '/"*:<>?|\\\u007f'
 FILENAME_BANNED_CHAR_RANGES = (
-    (ord("\u0000"), ord("\u001f")),
-    (ord("\u0080"), ord("\u009f")),
-    (ord("\ue000"), ord("\uf8ff")),
-    (ord("\ufdd0"), ord("\ufdef")),
-    (ord("\ufff0"), ord("\uffff")),
-    (ord("\U000e0000"), ord("\U000e0fff")),
-    (ord("\U000f0000"), ord("\U000fffff")),
-    (ord("\U00100000"), ord("\U0010ffff")),
+    (ord("\u0000"), ord("\u001f")),  # C0
+    (ord("\u0080"), ord("\u009f")),  # C1
+    (ord("\ue000"), ord("\uf8ff")),  # Private Use Area
+    (ord("\ufdd0"), ord("\ufdef")),  # Non-Characters in Arabic Presentation Forms-A
+    (ord("\ufff0"), ord("\uffff")),  # Specials
+    (ord("\U000e0000"), ord("\U000e0fff")),  # Tags and Variation Selectors Supplement
+    (ord("\U000f0000"), ord("\U000fffff")),  # Supplementary Private Use Area-A
+    (ord("\U00100000"), ord("\U0010ffff")),  # Supplementary Private Use Area-B
 )
 
 SECTION_SIZE_LIMIT = 200000
@@ -227,13 +227,18 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
     post_div = post_html.find("div")
     permalink = post.find("img", title="Permalink", alt="Permalink").parent["href"]
     permalink_fragment = urlparse(permalink).fragment
-    reply_anchor = post_html.new_tag("a", id=permalink_fragment)
+    if permalink_fragment == "":
+        post_id = "post-" + permalink.split("/")[-1]
+        reply_anchor = post_html.new_tag("a", id=post_id)
+    else:
+        reply_anchor = post_html.new_tag("a", id=permalink_fragment)
     post_div.extend([reply_anchor])  # for linking to this reply
 
     icon = post.find("img", "icon")
     if icon:
         local_image = BeautifulSoup('<img class="icon"></img>', "html.parser")
         local_image.find("img")["src"] = "../%s" % image_map.insert(icon["src"])
+        local_image.find("img")["alt"] = icon["alt"]
         post_div.extend([header, local_image] + content.contents)
     else:
         post_div.extend([header] + content.contents)
