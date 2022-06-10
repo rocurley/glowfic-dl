@@ -29,20 +29,13 @@ from tqdm.asyncio import tqdm
 # * When taking in images of format other than PNG/JPEG/GIF/SVG, convert them
 #   to one of those formats, for EPUB specification compliance
 # * Download inline images too, not just icons
-# * Make sure the book content is valid XHTML, and turn it into such if it's not
-
-# TODO (for the current PR):
-# * Figure out if there's any practical way to zero-pad icon file numbers
-#     * There is; gather the full image map before using it for anything
-# * Add pretty printing to the book's XHTML (BeautifulSoup prettify() is ugly,
-#   so I'll need to improvise something better)
 
 ################
 ##   Consts   ##
 ################
 
 
-FILENAME_BANNED_CHARS = '/"*:<>?|\\\u007f'
+FILENAME_BANNED_CHARS = '/\\"*:<>?|\u007f'
 FILENAME_BANNED_CHAR_RANGES = (
     (ord("\u0000"), ord("\u001f")),  # C0
     (ord("\u0080"), ord("\u009f")),  # C1
@@ -101,18 +94,34 @@ output_template = """
 #################
 
 
+class MappedImage:
+    def __init__(self, name: str, id: int, extension: str):
+        self.name = name
+        self.id = id
+        self.ext = extension
+
+    def to_filename(self, id_width: int):
+        return "Images/%s%.*i.%s" % (self.name, id_width, self.id, self.ext)
+
+
 class ImageMap:
     def __init__(self):
         self.map = {}
-        self.next = 0
+        self.next_icon = 0
+        self.icon_id_width = 1
 
-    def insert(self, url: str) -> str:
+    def add_icon(self, url: str):
         if url not in self.map:
             path = urlparse(url).path
             ext = path.split(".")[-1]
-            self.map[url] = "Images/icon%i.%s" % (self.next, ext)
-            self.next += 1
-        return self.map[url]
+            self.map[url] = MappedImage("icon", self.next_icon, ext)
+            self.icon_id_width = len(str(self.next_icon))
+            self.next_icon += 1
+
+    def get_icon(self, url: str):
+        if url not in self.map:
+            self.add(url)
+        return self.map[url].to_filename(self.icon_id_width)
 
 
 class RenderedPost:
@@ -175,7 +184,16 @@ def make_filename_valid_for_epub3(filename: str) -> str:
         if char_allowed:
             filtered_filename += char
 
-    # Ensure filename is of allowed length, and return
+    # Ensure filename doesn't end in '.'
+    while len(filtered_filename) > 0 and filtered_filename[-1] == ".":
+        filtered_filename = filtered_filename[:-1]
+
+    if len(filtered_filename) == 0:
+        raise Exception(
+            "Attempted to put file into EPUB with filename containing only invalid characters and/or periods."
+        )
+
+    # Ensure filename is of allowed length, then return
     if len(filtered_filename.encode("utf-8")) <= 255:
         return filtered_filename
     else:
@@ -203,6 +221,13 @@ def make_filename_valid_for_epub3(filename: str) -> str:
 ###########################
 ##   Scrape and Render   ##
 ###########################
+
+
+def populate_image_map(posts: ResultSet, image_map: ImageMap):
+    for post in posts:
+        icon = post.find("img", "icon")
+        if icon:
+            image_map.add_icon(icon["src"])
 
 
 def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
@@ -238,7 +263,7 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
     icon = post.find("img", "icon")
     if icon:
         local_image = BeautifulSoup('<img class="icon"></img>', "html.parser")
-        local_image.find("img")["src"] = "../%s" % image_map.insert(icon["src"])
+        local_image.find("img")["src"] = "../%s" % image_map.get_icon(icon["src"])
         local_image.find("img")["alt"] = icon["alt"]
         post_div.extend([header, local_image] + content.contents)
     else:
@@ -254,6 +279,7 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 def render_posts(
     posts: ResultSet, image_map: ImageMap, authors: OrderedDict
 ) -> Iterable[Section]:
+    populate_image_map(posts, image_map)
     out = Section()
     for post in posts:
         rendered = render_post(post, image_map)
@@ -421,7 +447,7 @@ async def download_images(
 ) -> list[epub.EpubItem]:
     in_flight = []
     for (k, v) in image_map.map.items():
-        in_flight.append(download_image(session, k, v))
+        in_flight.append(download_image(session, k, v.to_filename(image_map.icon_id_width)))
     return [image for image in await tqdm.gather(*in_flight) if image is not None]
 
 
