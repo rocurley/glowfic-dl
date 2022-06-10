@@ -120,7 +120,7 @@ class ImageMap:
 
     def get_icon(self, url: str):
         if url not in self.map:
-            self.add(url)
+            self.add_icon(url)
         return self.map[url].to_filename(self.icon_id_width)
 
 
@@ -447,7 +447,9 @@ async def download_images(
 ) -> list[epub.EpubItem]:
     in_flight = []
     for (k, v) in image_map.map.items():
-        in_flight.append(download_image(session, k, v.to_filename(image_map.icon_id_width)))
+        in_flight.append(
+            download_image(session, k, v.to_filename(image_map.icon_id_width))
+        )
     return [image for image in await tqdm.gather(*in_flight) if image is not None]
 
 
