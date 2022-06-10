@@ -28,19 +28,30 @@ from tqdm.asyncio import tqdm
 # * When taking in images of format other than PNG/JPEG/GIF/SVG, convert them
 #   to one of those formats, for EPUB specification compliance
 # * Download inline images too, not just icons
+# * Make sure the book content is valid XHTML, and turn it into such if it's not
 
 # TODO (for the current PR):
 # * Figure out if there's any practical way to zero-pad icon file numbers
-# * Figure out if there's any practical way to tag icon titles with gallery and
-#   icon names
-# * Filter filenames which contain title information to ensure they're
-#   legitimate EPUB 3 filenames. <=255 bytes length in UTF-8, and no characters
-#   from the various banned ranges.
+#     * There is; gather the full image map before using it for anything
+# * Add pretty printing to the book's XHTML (BeautifulSoup prettify() is ugly,
+#   so I'll need to improvise something better)
 
-#################
-##   Globals   ##
-#################
+################
+##   Consts   ##
+################
 
+
+FILENAME_BANNED_CHARS = '/"*:<>?|\\\u007f'
+FILENAME_BANNED_CHAR_RANGES = (
+    (ord("\u0000"), ord("\u001f")),
+    (ord("\u0080"), ord("\u009f")),
+    (ord("\ue000"), ord("\uf8ff")),
+    (ord("\ufdd0"), ord("\ufdef")),
+    (ord("\ufff0"), ord("\uffff")),
+    (ord("\U000e0000"), ord("\U000e0fff")),
+    (ord("\U000f0000"), ord("\U000fffff")),
+    (ord("\U00100000"), ord("\U0010ffff")),
+)
 
 SECTION_SIZE_LIMIT = 200000
 
@@ -140,6 +151,54 @@ class BookSpec:
         self.last_update = max((stamped_url.stamp for stamped_url in stamped_urls))
 
 
+#################
+##   Helpers   ##
+#################
+
+
+def make_filename_valid_for_epub3(filename: str) -> str:
+    filtered_filename = ""
+
+    # Ensure filename contains only allowed chars
+    for char in filename:
+        if char in FILENAME_BANNED_CHARS:
+            continue
+
+        char_allowed = True
+        for range_bottom, range_top in FILENAME_BANNED_CHAR_RANGES:
+            char_ord = ord(char)
+            if char_ord >= range_bottom and char_ord <= range_top:
+                char_allowed = False
+                break
+
+        if char_allowed:
+            filtered_filename += char
+
+    # Ensure filename is of allowed length, and return
+    if len(filtered_filename.encode("utf-8")) <= 255:
+        return filtered_filename
+    else:
+        # Assumptions:
+        # * File extension exists and is <255 bytes in length
+        # * Filenames have unique numerical identifiers before the 255-byte
+        #   mark, such that truncation won't produce name collisions
+
+        split_filename = filtered_filename.split(".")
+        ext = split_filename[-1]
+        ext_bytes = len(ext.encode("utf-8"))
+        if ext_bytes > 255:
+            raise Exception(
+                "Attempted to put file into EPUB with extension longer than 255 bytes."
+            )
+
+        name_truncated = ".".join(split_filename[:-1])[:-1]
+        full_name_truncated = "%s.%s" % (name_truncated, ext)
+        while len(full_name_truncated.encode("utf-8")) > 255:
+            name_truncated = name_truncated[:-1]
+            full_name_truncated = "%s.%s" % (name_truncated, ext)
+        return full_name_truncated
+
+
 ###########################
 ##   Scrape and Render   ##
 ###########################
@@ -225,12 +284,15 @@ def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.Epu
     for (i, (title, sections)) in enumerate(chapters):
         section_digits = len(str(len(sections)))
         for (j, section) in enumerate(sections):
-            file_name = "Text/%.*i_%s_%.*i.xhtml" % (
-                chapter_digits,
-                i + 1,
-                title,
-                section_digits,
-                j,
+            file_name = "Text/" + make_filename_valid_for_epub3(
+                "%.*i-%.*i (%s).xhtml"
+                % (
+                    chapter_digits,
+                    i + 1,
+                    section_digits,
+                    j,
+                    title,
+                )
             )
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
@@ -255,12 +317,15 @@ def compile_chapters(chapters: list[tuple[str, list[Section]]]) -> list[epub.Epu
         section_digits = len(str(len(sections)))
         compiled_sections = []
         for (j, section) in enumerate(sections):
-            file_name = "Text/%.*i_%s_%.*i.xhtml" % (
-                chapter_digits,
-                i + 1,
-                title,
-                section_digits,
-                j,
+            file_name = "Text/" + make_filename_valid_for_epub3(
+                "%.*i-%.*i (%s).xhtml"
+                % (
+                    chapter_digits,
+                    i + 1,
+                    section_digits,
+                    j,
+                    title,
+                )
             )
             compiled_section = epub.EpubHtml(
                 title=title, file_name=file_name, media_type="application/xhtml+xml"
