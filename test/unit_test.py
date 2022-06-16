@@ -9,7 +9,12 @@ from src.helpers import make_filename_valid_for_epub3
 
 
 class TestFilenameValidation:
-    def run(self, in_filename: str, expected_out_filename: Optional[str] = None, should_error: bool = False):
+    def run(
+        self,
+        in_filename: str,
+        expected_out_filename: Optional[str] = None,
+        should_error: bool = False,
+    ):
         try:
             validated_filename = make_filename_valid_for_epub3(in_filename)
         except ValueError as e:
@@ -17,7 +22,7 @@ class TestFilenameValidation:
                 return
             else:
                 raise e
-        
+
         assert validated_filename == expected_out_filename
 
     # Filenames which should emerge unscathed
@@ -46,7 +51,7 @@ class TestFilenameValidation:
         self.run(in_filename, out_filename)
 
     def test_filename_character_filtration(self):
-        in_filename = "c/h\\a\"p*t:e<r\u007f_\u00120\u00802\ue001.\ufdefx\ufff8h\U000e0ffet\U000f8fffm\U00100000l"
+        in_filename = 'c/h\\a"p*t:e<r\u007f_\u00120\u00802\ue001.\ufdefx\ufff8h\U000e0ffet\U000f8fffm\U00100000l'
         out_filename = "chapter_02.xhtml"
         self.run(in_filename, out_filename)
 
