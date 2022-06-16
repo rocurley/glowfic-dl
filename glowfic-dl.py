@@ -253,12 +253,9 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
     post_div = post_html.find("div")
     permalink = post.find("img", title="Permalink", alt="Permalink").parent["href"]
     permalink_fragment = urlparse(permalink).fragment
-    if permalink_fragment == "":
-        post_id = "post-" + permalink.split("/")[-1]
-        reply_anchor = post_html.new_tag("a", id=post_id)
-    else:
+    if permalink_fragment != "":
         reply_anchor = post_html.new_tag("a", id=permalink_fragment)
-    post_div.extend([reply_anchor])  # for linking to this reply
+        post_div.extend([reply_anchor])  # for linking to this reply
 
     icon = post.find("img", "icon")
     if icon:
@@ -316,7 +313,7 @@ def compile_chapters(
 
     # Map permalinks to file names
     for (i, (title, sections)) in enumerate(chapters):
-        section_digits = len(str(len(sections)))
+        section_digits = len(str(len(sections) - 1))
         for (j, section) in enumerate(sections):
             file_name = "Text/" + make_filename_valid_for_epub3(
                 "%.*i-%.*i (%s).xhtml"
@@ -331,7 +328,7 @@ def compile_chapters(
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
 
-    # Replace external links with internal links where practical
+    # Replace external links with internal links where possible
     for (i, (title, sections)) in enumerate(chapters):
         for (j, section) in enumerate(sections):
             for a in section.html.find_all("a"):
@@ -348,7 +345,7 @@ def compile_chapters(
 
     # Yield one list of EpubHTML objects per chapter
     for (i, (title, sections)) in enumerate(chapters):
-        section_digits = len(str(len(sections)))
+        section_digits = len(str(len(sections) - 1))
         compiled_sections = []
         for (j, section) in enumerate(sections):
             file_name = "Text/" + make_filename_valid_for_epub3(
