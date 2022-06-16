@@ -44,7 +44,7 @@ def make_filename_valid_for_epub3(filename: str) -> str:
         filtered_filename = filtered_filename[:-1]
 
     if len(filtered_filename) == 0:
-        raise Exception(
+        raise ValueError(
             "Attempted to put file into EPUB with filename containing only invalid characters and/or periods."
         )
 
@@ -61,7 +61,7 @@ def make_filename_valid_for_epub3(filename: str) -> str:
         ext = split_filename[-1]
         ext_bytes = len(ext.encode("utf-8"))
         if ext_bytes > 254:
-            raise Exception(
+            raise ValueError(
                 "Attempted to put file into EPUB with extension longer than 254 bytes."
             )
 

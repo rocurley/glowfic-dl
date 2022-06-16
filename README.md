@@ -18,6 +18,11 @@ pipenv shell
 
 If you want to access private posts, you can put your `_glowfic_constellation_production` cookie into a file called `cookie`.
 
+To run tests (requires `pytest` to be installed, or the pipenv shell to be active):
+```
+python3 -m pytest
+```
+
 I've tested it on Kindle and Kobo.
 For Kindle, I recommend using Calibre to convert it to AZW3 and not MOBI: this gives significantly better formatting.
 For Kobo, the formatting isn't great yet: it doesn't handle suggested page breaks particularly well.

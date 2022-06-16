@@ -17,3 +17,4 @@ tzdata = "*"
 
 [dev-packages]
 black = "*"
+pytest = "*"
