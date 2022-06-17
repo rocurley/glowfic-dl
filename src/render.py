@@ -74,27 +74,52 @@ class MappedImage:
         self.ext = extension
 
     def to_filename(self, id_width: int):
-        return "Images/%s%.*i.%s" % (self.name, id_width, self.id, self.ext)
+        return "Images/" + make_filename_valid_for_epub3(
+            "%s%.*i.%s" % (self.name, id_width, self.id, self.ext)
+        )
 
 
 class ImageMap:
     def __init__(self):
-        self.map = {}
+        self.icons = {}
+        self.images = {}
         self.next_icon = 0
         self.icon_id_width = 1
+        self.next_image = 0
+        self.image_id_width = 1
 
     def add_icon(self, url: str):
-        if url not in self.map:
+        if url not in self.icons:
             path = urlparse(url).path
             ext = path.split(".")[-1]
-            self.map[url] = MappedImage("icon", self.next_icon, ext)
+            self.icons[url] = MappedImage("icon", self.next_icon, ext)
             self.icon_id_width = len(str(self.next_icon))
             self.next_icon += 1
 
     def get_icon(self, url: str):
-        if url not in self.map:
-            self.add_icon(url)
-        return self.map[url].to_filename(self.icon_id_width)
+        if url not in self.icons:
+            raise ValueError(
+                "Attempted to get icon not in image map. (This indicates a prior map population failure.)"
+            )
+        return self.icons[url].to_filename(self.icon_id_width)
+
+    def add_image(self, url: str):
+        if url not in self.icons and url not in self.images:
+            path = urlparse(url).path
+            ext = path.split(".")[-1]
+            self.images[url] = MappedImage("image", self.next_image, ext)
+            self.image_id_width = len(str(self.next_icon))
+            self.next_image += 1
+
+    def get_image(self, url: str):
+        if url in self.icons:
+            return self.get_icon(url)
+        elif url not in self.images:
+            raise ValueError(
+                "Attempted to get image not in image map. (This indicates a prior map population failure.)"
+            )
+        else:
+            return self.images[url].to_filename(self.image_id_width)
 
 
 class RenderedPost:
@@ -140,10 +165,16 @@ class BookSpec:
 
 
 def populate_image_map(posts: ResultSet, image_map: ImageMap):
+    # Get icons
     for post in posts:
         icon = post.find("img", "icon")
         if icon:
             image_map.add_icon(icon["src"])
+
+    # Get non-icon images
+    for post in posts:
+        for image in post.find("div", "post-content").find_all("img"):
+            image_map.add_image(image["src"])
 
 
 def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
@@ -164,6 +195,9 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
     header.find("strong").string = " / ".join(
         [x for x in [character, screen_name, author] if x is not None]
     )
+
+    for inline_img in content.find_all("img"):
+        inline_img["src"] = "../%s" % image_map.get_image(inline_img["src"])
 
     post_html = BeautifulSoup('<div class="post"></div>', "html.parser")
     post_div = post_html.find("div")
@@ -359,8 +393,12 @@ async def download_images(
     session: aiohttp.ClientSession, image_map: ImageMap
 ) -> list[epub.EpubItem]:
     in_flight = []
-    for (k, v) in image_map.map.items():
+    for (k, v) in image_map.icons.items():
         in_flight.append(
             download_image(session, k, v.to_filename(image_map.icon_id_width))
+        )
+    for (k, v) in image_map.images.items():
+        in_flight.append(
+            download_image(session, k, v.to_filename(image_map.image_id_width))
         )
     return [image for image in await tqdm.gather(*in_flight) if image is not None]
