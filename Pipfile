@@ -11,8 +11,10 @@ aiohttp = "*"
 aiolimiter = "*"
 bs4 = "*"
 ebooklib = "*"
+lxml = "*"
 tqdm = "*"
 tzdata = "*"
 
 [dev-packages]
 black = "*"
+pytest = "*"
