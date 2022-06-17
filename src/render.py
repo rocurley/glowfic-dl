@@ -242,6 +242,8 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
         mapped_image = image_map.get_image_name(inline_img["src"])
         if mapped_image is not None:
             inline_img["src"] = "../%s" % mapped_image
+        else:
+            inline_img["src"] = "data:,"
 
     post_html = BeautifulSoup('<div class="post"></div>', "html.parser")
     post_div = post_html.find("div")
