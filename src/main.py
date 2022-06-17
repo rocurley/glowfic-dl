@@ -1,8 +1,6 @@
 import argparse
-import asyncio
 from collections import OrderedDict
 import os
-import platform
 
 import aiohttp
 import aiolimiter
@@ -122,8 +120,3 @@ async def main():
             out_path = "%s.epub" % spec.title
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
-
-
-if platform.system() == "Windows":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-asyncio.run(main())
