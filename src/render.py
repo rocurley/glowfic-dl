@@ -86,7 +86,9 @@ class MappedImage:
             self.is_null = True
         processed = process_image_for_epub3(file)
         if processed is None:
-            print("Downloaded %s, but it wasn't an image" % url)
+            print(
+                "Downloaded %s, but it wasn't an image of EPUB3-compatible format" % url
+            )
             self.is_null = True
         else:
             self.file, self.media_type, self.ext = processed
@@ -239,7 +241,7 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
     for inline_img in content.find_all("img"):
         mapped_image = image_map.get_image_name(inline_img["src"])
         if mapped_image is not None:
-            inline_img["src"] = "../%s" % image_map.get_image_name(inline_img["src"])
+            inline_img["src"] = "../%s" % mapped_image
 
     post_html = BeautifulSoup('<div class="post"></div>', "html.parser")
     post_div = post_html.find("div")
