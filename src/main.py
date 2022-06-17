@@ -18,7 +18,6 @@ from .render import *
 # * Less bad covers
 # * When taking in images of format other than PNG/JPEG/GIF/SVG, convert them
 #   to one of those formats, for EPUB specification compliance
-# * Download inline images too, not just icons
 # * Fix whatever's wrong with link-rewriting right now
 
 

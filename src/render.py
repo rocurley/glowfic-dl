@@ -24,7 +24,8 @@ from .helpers import make_filename_valid_for_epub3
 
 SECTION_SIZE_LIMIT = 200000
 
-REPLY_RE = re.compile(r"/(replies|posts)/\d*")
+RELATIVE_REPLY_RE = re.compile(r"/(replies|posts)/\d*")
+ABSOLUTE_REPLY_RE = re.compile(r"https?://(www.)?glowfic.com(?P<relative>/(replies|posts)/\d*)")
 
 GLOWFIC_ROOT = "https://glowfic.com"
 GLOWFIC_TZ = ZoneInfo("America/New_York")
@@ -265,7 +266,7 @@ def compile_chapters(
     for (i, (title, sections)) in enumerate(chapters):
         section_digits = len(str(len(sections) - 1))
         for (j, section) in enumerate(sections):
-            file_name = "Text/" + make_filename_valid_for_epub3(
+            file_name = make_filename_valid_for_epub3(
                 "%.*i-%.*i (%s).xhtml"
                 % (
                     chapter_digits,
@@ -286,12 +287,16 @@ def compile_chapters(
                     continue
                 raw_url = a["href"]
                 url = urlparse(raw_url)
-                if REPLY_RE.match(raw_url) and raw_url in anchor_sections:
+                if RELATIVE_REPLY_RE.match(raw_url) and raw_url in anchor_sections:
                     a["href"] = url._replace(path=anchor_sections[raw_url]).geturl()
-                elif url.netloc == "":  # Glowfic link to something not included here
-                    a["href"] = url._replace(
-                        scheme="https", netloc="glowfic.com"
-                    ).geturl()
+                else:
+                    abs = ABSOLUTE_REPLY_RE.match(raw_url)
+                    if abs is not None and abs.group("relative") in anchor_sections:
+                        a["href"] = anchor_sections[abs.group("relative")]
+                    elif url.netloc == "":  # Glowfic link to something not included here
+                        a["href"] = url._replace(
+                            scheme="https", netloc="glowfic.com"
+                        ).geturl()
 
     # Yield one list of EpubHTML objects per chapter
     for (i, (title, sections)) in enumerate(chapters):
