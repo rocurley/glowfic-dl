@@ -16,9 +16,6 @@ from .render import *
 #   post was linked to from reply #114 of Mad investor chaos". <a>Return
 #   there</a>.
 # * Less bad covers
-# * When taking in images of format other than PNG/JPEG/GIF/SVG, convert them
-#   to one of those formats, for EPUB specification compliance
-# * Fix whatever's wrong with link-rewriting right now
 
 
 ################
@@ -76,16 +73,15 @@ async def main():
             image_map = ImageMap()
             authors = OrderedDict()
 
-            print("Downloading chapter texts")
-            chapters = await tqdm.gather(
-                *[
-                    download_chapter(
-                        slow_session, limiter, stamped_url, image_map, authors
-                    )
-                    for (i, stamped_url) in enumerate(spec.stamped_urls)
-                ]
+            downloaded_chapters = await download_chapters(
+                slow_session,
+                limiter,
+                fast_session,
+                spec.stamped_urls,
+                image_map,
+                authors,
             )
-            chapters = list(compile_chapters(chapters))
+            chapters = list(compile_chapters(downloaded_chapters))
             for chapter in chapters:
                 for section in chapter:
                     book.add_item(section)
@@ -99,8 +95,7 @@ async def main():
             )
             book.add_item(style)
 
-            print("Downloading images")
-            images = await download_images(fast_session, image_map)
+            images = get_images_as_epub_items(image_map)
 
             for image in images:
                 book.add_item(image)
