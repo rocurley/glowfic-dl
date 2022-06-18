@@ -1,3 +1,10 @@
+from io import BytesIO
+from typing import Optional
+
+from lxml import etree
+from PIL import Image, UnidentifiedImageError
+
+
 ################
 ##   Consts   ##
 ################
@@ -19,6 +26,43 @@ FILENAME_BANNED_CHAR_RANGES = (
 ###################
 ##   Functions   ##
 ###################
+
+
+def process_image_for_epub3(source_image: bytes) -> Optional[tuple[bytes, str, str]]:
+    source_image_buffer = BytesIO(source_image)
+
+    try:  # See if the file is a raster image parsable by pillow
+        pillow_image = Image.open(source_image_buffer)
+        match pillow_image.format:
+            case "JPEG":
+                return source_image, "image/jpeg", "jpg"
+            case "PNG":
+                return source_image, "image/png", "png"
+            case "GIF":
+                return source_image, "image/gif", "gif"
+            case _ if pillow_image.format in ["BUFR", "GRIB", "HDF5", "MPEG"]:
+                # File is of a format which pillow can identify but can't parse for conversion
+                return None
+            case _:
+                out_buffer = BytesIO()
+                if getattr(pillow_image, "is_animated", False):
+                    pillow_image.save(out_buffer, "GIF")
+                    return out_buffer.getvalue(), "image/gif", "gif"
+                else:
+                    pillow_image.save(out_buffer, "PNG")
+                    return out_buffer.getvalue(), "image/png", "png"
+
+    except UnidentifiedImageError:
+        try:  # See if the file is an SVG
+            possible_svg = etree.parse(source_image_buffer)
+            possible_svg_root = possible_svg.getroot()
+            if possible_svg_root.tag == "{http://www.w3.org/2000/svg}svg":
+                return source_image, "image/svg+xml", "svg"
+            else:
+                return None
+
+        except etree.XMLSyntaxError:  # File is neither a valid EPUB 3 image nor convertible thereto
+            return None
 
 
 def make_filename_valid_for_epub3(filename: str) -> str:

@@ -12,6 +12,7 @@ aiolimiter = "*"
 bs4 = "*"
 ebooklib = "*"
 lxml = "*"
+pillow = "*"
 tqdm = "*"
 tzdata = "*"
 

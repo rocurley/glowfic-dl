@@ -14,7 +14,7 @@ from ebooklib import epub
 from lxml import etree
 from tqdm.asyncio import tqdm
 
-from .helpers import make_filename_valid_for_epub3
+from .helpers import *
 
 
 ################
@@ -24,7 +24,10 @@ from .helpers import make_filename_valid_for_epub3
 
 SECTION_SIZE_LIMIT = 200000
 
-REPLY_RE = re.compile(r"/(replies|posts)/\d*")
+RELATIVE_REPLY_RE = re.compile(r"/(replies|posts)/\d*")
+ABSOLUTE_REPLY_RE = re.compile(
+    r"https?://(www.)?glowfic.com(?P<relative>/(replies|posts)/\d*)"
+)
 
 GLOWFIC_ROOT = "https://glowfic.com"
 GLOWFIC_TZ = ZoneInfo("America/New_York")
@@ -68,13 +71,37 @@ output_template = """
 
 
 class MappedImage:
-    def __init__(self, name: str, id: int, extension: str):
+    def __init__(self, name: str, id: int):
         self.name = name
         self.id = id
-        self.ext = extension
+        self.downloaded = False
+        self.is_null = False
+        self.file = None
+        self.media_type = None
+        self.ext = None
 
-    def to_filename(self, id_width: int):
-        return "Images/%s%.*i.%s" % (self.name, id_width, self.id, self.ext)
+    def add_file(self, file: Optional[bytes], url: str):
+        self.downloaded = True
+        if file is None:
+            self.is_null = True
+        processed = process_image_for_epub3(file)
+        if processed is None:
+            print(
+                "Downloaded %s, but it wasn't an image of EPUB3-compatible format" % url
+            )
+            self.is_null = True
+        else:
+            self.file, self.media_type, self.ext = processed
+
+    def get_filename(self, id_width: int) -> Optional[str]:
+        if not self.downloaded:
+            raise RuntimeError(
+                "Attempted to get mapped image filename before getting it as a file. (This indicates a prior map population failure.)"
+            )
+        elif self.is_null:
+            return None
+        else:
+            return "Images/%s%.*i.%s" % (self.name, id_width, self.id, self.ext)
 
 
 class ImageMap:
@@ -82,19 +109,34 @@ class ImageMap:
         self.map = {}
         self.next_icon = 0
         self.icon_id_width = 1
+        self.next_image = 0
+        self.image_id_width = 1
 
     def add_icon(self, url: str):
         if url not in self.map:
-            path = urlparse(url).path
-            ext = path.split(".")[-1]
-            self.map[url] = MappedImage("icon", self.next_icon, ext)
+            self.map[url] = MappedImage("icon", self.next_icon)
             self.icon_id_width = len(str(self.next_icon))
             self.next_icon += 1
 
-    def get_icon(self, url: str):
+    def add_image(self, url: str):
         if url not in self.map:
-            self.add_icon(url)
-        return self.map[url].to_filename(self.icon_id_width)
+            self.map[url] = MappedImage("image", self.next_image)
+            self.image_id_width = len(str(self.next_image))
+            self.next_image += 1
+
+    def get_icon_name(self, url: str) -> Optional[str]:
+        if url not in self.map:
+            raise ValueError(
+                "Attempted to get icon not in image map. (This indicates a prior map population failure.)"
+            )
+        return self.map[url].get_filename(self.icon_id_width)
+
+    def get_image_name(self, url: str) -> Optional[str]:
+        if url not in self.map:
+            raise ValueError(
+                "Attempted to get image not in image map. (This indicates a prior map population failure.)"
+            )
+        return self.map[url].get_filename(self.image_id_width)
 
 
 class RenderedPost:
@@ -140,10 +182,28 @@ class BookSpec:
 
 
 def populate_image_map(posts: ResultSet, image_map: ImageMap):
+    # Find icons
     for post in posts:
         icon = post.find("img", "icon")
         if icon:
             image_map.add_icon(icon["src"])
+
+    # Find non-icon images
+    for post in posts:
+        for image in post.find("div", "post-content").find_all("img"):
+            image_map.add_image(image["src"])
+
+
+async def download_image(
+    session: aiohttp.ClientSession, url: str, mapped_image: MappedImage
+):
+    try:
+        async with session.get(url, timeout=15) as resp:
+            file = await resp.read()
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        print("Failed to download %s" % url)
+        file = None
+    mapped_image.add_file(file, url)
 
 
 def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
@@ -165,6 +225,13 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
         [x for x in [character, screen_name, author] if x is not None]
     )
 
+    for inline_img in content.find_all("img"):
+        mapped_image = image_map.get_image_name(inline_img["src"])
+        if mapped_image is not None:
+            inline_img["src"] = "../%s" % mapped_image
+        else:
+            inline_img["src"] = "data:,"
+
     post_html = BeautifulSoup('<div class="post"></div>', "html.parser")
     post_div = post_html.find("div")
     permalink = post.find("img", title="Permalink", alt="Permalink").parent["href"]
@@ -175,10 +242,14 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 
     icon = post.find("img", "icon")
     if icon:
-        local_image = BeautifulSoup('<img class="icon"></img>', "html.parser")
-        local_image.find("img")["src"] = "../%s" % image_map.get_icon(icon["src"])
-        local_image.find("img")["alt"] = icon["alt"]
-        post_div.extend([header, local_image] + content.contents)
+        mapped_icon = image_map.get_icon_name(icon["src"])
+        if mapped_icon:
+            local_image = BeautifulSoup('<img class="icon"></img>', "html.parser")
+            local_image.find("img")["src"] = "../%s" % mapped_icon
+            local_image.find("img")["alt"] = icon["alt"]
+            post_div.extend([header, local_image] + content.contents)
+        else:
+            post_div.extend([header] + content.contents)
     else:
         post_div.extend([header] + content.contents)
     return RenderedPost(
@@ -192,7 +263,6 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 def render_posts(
     posts: ResultSet, image_map: ImageMap, authors: OrderedDict
 ) -> Iterable[Section]:
-    populate_image_map(posts, image_map)
     out = Section()
     for post in posts:
         rendered = render_post(post, image_map)
@@ -209,16 +279,47 @@ async def download_chapter(
     session: aiohttp.ClientSession,
     limiter: aiolimiter.AsyncLimiter,
     stamped_url: StampedURL,
-    image_map: ImageMap,
-    authors: OrderedDict,
-) -> tuple[str, list[Section]]:
+) -> BeautifulSoup:
     await limiter.acquire()
     resp = await session.get(stamped_url.url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
-    posts = soup.find_all("div", "post-container")
-    title = validate_tag(soup.find("span", id="post-title"), soup).text.strip()
-    return (title, list(render_posts(posts, image_map, authors)))
+    return soup
+
+
+async def download_chapters(
+    slow_session: aiohttp.ClientSession,
+    limiter: aiolimiter.AsyncLimiter,
+    fast_session: aiohttp.ClientSession,
+    stamped_urls: list[StampedURL],
+    image_map: ImageMap,
+    authors: OrderedDict,
+) -> list[tuple[str, list[Section]]]:
+    print("Downloading chapter texts")
+    chapter_soups = await tqdm.gather(
+        *[
+            download_chapter(slow_session, limiter, stamped_url)
+            for stamped_url in stamped_urls
+        ]
+    )
+    for chapter_soup in chapter_soups:
+        posts = chapter_soup.find_all("div", "post-container")
+        populate_image_map(posts, image_map)
+    print("Downloading images")
+    await tqdm.gather(
+        *[
+            download_image(fast_session, url, mapped_image)
+            for (url, mapped_image) in image_map.map.items()
+        ]
+    )
+    rendered_chapters = []
+    for chapter_soup in chapter_soups:
+        title = validate_tag(
+            chapter_soup.find("span", id="post-title"), chapter_soup
+        ).text.strip()
+        posts = chapter_soup.find_all("div", "post-container")
+        rendered_chapters.append((title, list(render_posts(posts, image_map, authors))))
+    return rendered_chapters
 
 
 def compile_chapters(
@@ -231,7 +332,7 @@ def compile_chapters(
     for (i, (title, sections)) in enumerate(chapters):
         section_digits = len(str(len(sections) - 1))
         for (j, section) in enumerate(sections):
-            file_name = "Text/" + make_filename_valid_for_epub3(
+            file_name = make_filename_valid_for_epub3(
                 "%.*i-%.*i (%s).xhtml"
                 % (
                     chapter_digits,
@@ -252,12 +353,18 @@ def compile_chapters(
                     continue
                 raw_url = a["href"]
                 url = urlparse(raw_url)
-                if REPLY_RE.match(raw_url) and raw_url in anchor_sections:
+                if RELATIVE_REPLY_RE.match(raw_url) and raw_url in anchor_sections:
                     a["href"] = url._replace(path=anchor_sections[raw_url]).geturl()
-                elif url.netloc == "":  # Glowfic link to something not included here
-                    a["href"] = url._replace(
-                        scheme="https", netloc="glowfic.com"
-                    ).geturl()
+                else:
+                    abs = ABSOLUTE_REPLY_RE.match(raw_url)
+                    if abs is not None and abs.group("relative") in anchor_sections:
+                        a["href"] = anchor_sections[abs.group("relative")]
+                    elif (
+                        url.netloc == ""
+                    ):  # Relative link to something not included here
+                        a["href"] = url._replace(
+                            scheme="https", netloc="glowfic.com"
+                        ).geturl()
 
     # Yield one list of EpubHTML objects per chapter
     for (i, (title, sections)) in enumerate(chapters):
@@ -338,29 +445,24 @@ async def get_post_urls_and_title(
         return BookSpec(title=title, stamped_urls=stamped_urls)
 
 
-async def download_image(
-    session: aiohttp.ClientSession, url: str, id: str
-) -> Optional[epub.EpubItem]:
-    try:
-        async with session.get(url, timeout=15) as resp:
-            item = epub.EpubItem(
-                uid=id,
-                file_name=id,
-                media_type=resp.headers["Content-Type"],
-                content=await resp.read(),
+def get_images_as_epub_items(image_map: ImageMap):
+    items = []
+    for url, mapped_image in image_map.map.items():
+        match mapped_image.name:
+            case "icon":
+                filename = image_map.get_icon_name(url)
+            case "image":
+                filename = image_map.get_image_name(url)
+            case _:
+                raise ValueError("Mapped image name is neither 'icon' nor 'image'.")
+        if filename is None:
+            continue
+        items.append(
+            epub.EpubItem(
+                uid=filename,
+                file_name=filename,
+                media_type=mapped_image.media_type,
+                content=mapped_image.file,
             )
-            return item
-    except (aiohttp.ClientError, asyncio.TimeoutError):
-        print("Failed to download %s" % url)
-        return None
-
-
-async def download_images(
-    session: aiohttp.ClientSession, image_map: ImageMap
-) -> list[epub.EpubItem]:
-    in_flight = []
-    for (k, v) in image_map.map.items():
-        in_flight.append(
-            download_image(session, k, v.to_filename(image_map.icon_id_width))
         )
-    return [image for image in await tqdm.gather(*in_flight) if image is not None]
+    return items
