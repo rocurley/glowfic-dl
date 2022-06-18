@@ -106,41 +106,37 @@ class MappedImage:
 
 class ImageMap:
     def __init__(self):
-        self.icons = {}
-        self.images = {}
+        self.map = {}
         self.next_icon = 0
         self.icon_id_width = 1
         self.next_image = 0
         self.image_id_width = 1
 
     def add_icon(self, url: str):
-        if url not in self.icons:
-            self.icons[url] = MappedImage("icon", self.next_icon)
+        if url not in self.map:
+            self.map[url] = MappedImage("icon", self.next_icon)
             self.icon_id_width = len(str(self.next_icon))
             self.next_icon += 1
 
+    def add_image(self, url: str):
+        if url not in self.map:
+            self.map[url] = MappedImage("image", self.next_image)
+            self.image_id_width = len(str(self.next_image))
+            self.next_image += 1
+
     def get_icon_name(self, url: str) -> Optional[str]:
-        if url not in self.icons:
+        if url not in self.map:
             raise ValueError(
                 "Attempted to get icon not in image map. (This indicates a prior map population failure.)"
             )
-        return self.icons[url].get_filename(self.icon_id_width)
-
-    def add_image(self, url: str):
-        if url not in self.icons and url not in self.images:
-            self.images[url] = MappedImage("image", self.next_image)
-            self.image_id_width = len(str(self.next_icon))
-            self.next_image += 1
+        return self.map[url].get_filename(self.icon_id_width)
 
     def get_image_name(self, url: str) -> Optional[str]:
-        if url in self.icons:
-            return self.get_icon_name(url)
-        elif url not in self.images:
+        if url not in self.map:
             raise ValueError(
                 "Attempted to get image not in image map. (This indicates a prior map population failure.)"
             )
-        else:
-            return self.images[url].get_filename(self.image_id_width)
+        return self.map[url].get_filename(self.image_id_width)
 
 
 class RenderedPost:
@@ -208,15 +204,6 @@ async def download_image(
         print("Failed to download %s" % url)
         file = None
     mapped_image.add_file(file, url)
-
-
-async def download_images(session: aiohttp.ClientSession, image_map: ImageMap):
-    in_flight = []
-    for (url, mapped_image) in image_map.icons.items():
-        in_flight.append(download_image(session, url, mapped_image))
-    for (url, mapped_image) in image_map.images.items():
-        in_flight.append(download_image(session, url, mapped_image))
-    await tqdm.gather(*in_flight)
 
 
 def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
@@ -319,12 +306,18 @@ async def download_chapters(
         posts = chapter_soup.find_all("div", "post-container")
         populate_image_map(posts, image_map)
     print("Downloading images")
-    await download_images(fast_session, image_map)
+    await tqdm.gather(
+        *[
+            download_image(fast_session, url, mapped_image)
+            for (url, mapped_image) in image_map.map.items()
+        ]
+    )
     rendered_chapters = []
     for chapter_soup in chapter_soups:
         title = validate_tag(
             chapter_soup.find("span", id="post-title"), chapter_soup
         ).text.strip()
+        posts = chapter_soup.find_all("div", "post-container")
         rendered_chapters.append((title, list(render_posts(posts, image_map, authors))))
     return rendered_chapters
 
@@ -454,28 +447,22 @@ async def get_post_urls_and_title(
 
 def get_images_as_epub_items(image_map: ImageMap):
     items = []
-    for url, icon in image_map.icons.items():
-        filename = image_map.get_icon_name(url)
+    for url, mapped_image in image_map.map.items():
+        match mapped_image.name:
+            case "icon":
+                filename = image_map.get_icon_name(url)
+            case "image":
+                filename = image_map.get_image_name(url)
+            case _:
+                raise ValueError("Mapped image name is neither 'icon' nor 'image'.")
         if filename is None:
             continue
         items.append(
             epub.EpubItem(
                 uid=filename,
                 file_name=filename,
-                media_type=icon.media_type,
-                content=icon.file,
-            )
-        )
-    for url, image in image_map.images.items():
-        filename = image_map.get_image_name(url)
-        if filename is None:
-            continue
-        items.append(
-            epub.EpubItem(
-                uid=filename,
-                file_name=filename,
-                media_type=image.media_type,
-                content=image.file,
+                media_type=mapped_image.media_type,
+                content=mapped_image.file,
             )
         )
     return items
