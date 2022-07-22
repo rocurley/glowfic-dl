@@ -14,7 +14,7 @@ from ebooklib import epub
 from lxml import etree
 from tqdm.asyncio import tqdm
 
-from .helpers import *
+from .helpers import make_filename_valid_for_epub3, process_image_for_epub3
 
 
 ################
@@ -84,10 +84,12 @@ class MappedImage:
         self.downloaded = True
         if file is None:
             self.is_null = True
+            return
         processed = process_image_for_epub3(file)
         if processed is None:
             print(
-                "Downloaded %s, but it wasn't an image of EPUB3-compatible format" % url
+                "Downloaded %s, but it wasn't an image of EPUB3-compatible format or convertible thereto"
+                % url
             )
             self.is_null = True
         else:
@@ -157,8 +159,7 @@ class Section:
         self.link_targets = []
 
     def append(self, post: RenderedPost):
-        post_size = len(post.html.encode())
-        self.size += post_size
+        self.size += len(post.html.encode())
         self.body.append(post.html)
         self.link_targets.append(post.permalink)
 
@@ -261,18 +262,22 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 
 
 def render_posts(
-    posts: ResultSet, image_map: ImageMap, authors: OrderedDict
+    posts: ResultSet, image_map: ImageMap, authors: OrderedDict, split: str
 ) -> Iterable[Section]:
     out = Section()
     for post in posts:
         rendered = render_post(post, image_map)
         post_size = len(rendered.html.encode())
-        if out.size + post_size > SECTION_SIZE_LIMIT and out.size > 0:
+        if split == "if_large" and out.size + post_size > SECTION_SIZE_LIMIT and out.size > 0:
             yield out
             out = Section()
         out.append(rendered)
         authors[rendered.author] = True
-    yield out
+        if split == "every_post":
+            yield out
+            out = Section()
+    if out.size > 0:
+        yield out
 
 
 async def download_chapter(
@@ -294,6 +299,7 @@ async def download_chapters(
     stamped_urls: list[StampedURL],
     image_map: ImageMap,
     authors: OrderedDict,
+    split: str,
 ) -> list[tuple[str, list[Section]]]:
     print("Downloading chapter texts")
     chapter_soups = await tqdm.gather(
@@ -318,7 +324,9 @@ async def download_chapters(
             chapter_soup.find("span", id="post-title"), chapter_soup
         ).text.strip()
         posts = chapter_soup.find_all("div", "post-container")
-        rendered_chapters.append((title, list(render_posts(posts, image_map, authors))))
+        rendered_chapters.append(
+            (title, list(render_posts(posts, image_map, authors, split)))
+        )
     return rendered_chapters
 
 
