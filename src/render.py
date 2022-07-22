@@ -51,6 +51,9 @@ div.post {
     border: solid grey 0.5em;
     page-break-inside: avoid;
 }
+.title, .authors {
+    text-align:center;
+}
 """.lstrip()
 
 output_template = """
@@ -58,8 +61,6 @@ output_template = """
 <head>
 </head>
 <body>
-<div class="posts">
-</div>
 </body>
 </html>
 """.lstrip()
@@ -154,7 +155,7 @@ class RenderedPost:
 class Section:
     def __init__(self):
         self.html = BeautifulSoup(output_template, "html.parser")
-        self.body = self.html.find("div")
+        self.body = self.html.find("body")
         self.size = 0
         self.link_targets = []
 
@@ -262,22 +263,45 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 
 
 def render_posts(
-    posts: ResultSet, image_map: ImageMap, authors: OrderedDict, split: str
+    posts: ResultSet, image_map: ImageMap, authors: set, title: str, split: str
 ) -> Iterable[Section]:
-    out = Section()
-    for post in posts:
-        rendered = render_post(post, image_map)
-        post_size = len(rendered.html.encode())
-        if split == "if_large" and out.size + post_size > SECTION_SIZE_LIMIT and out.size > 0:
-            yield out
-            out = Section()
-        out.append(rendered)
-        authors[rendered.author] = True
+    rendered_posts = [render_post(post, image_map) for post in posts]
+
+    # Thread title page
+    thread_authors = set()
+    for post in rendered_posts:
+        thread_authors.add(post.author)
+    authors.update(thread_authors)
+
+    title_page = Section()
+    title_page.body.extend(
+        BeautifulSoup('<h2 class="title">%s</h2>' % title, "html.parser")
+    )
+    title_page.body.extend(
+        BeautifulSoup(
+            '<h3 class="authors">%s</h2>' % ", ".join(sorted(thread_authors)),
+            "html.parser",
+        )
+    )
+    yield title_page
+
+    # Thread posts
+    current_section = Section()
+    for post in rendered_posts:
+        post_size = len(post.html.encode())
+        if (
+            split == "if_large"
+            and current_section.size + post_size > SECTION_SIZE_LIMIT
+            and current_section.size > 0
+        ):
+            yield current_section
+            current_section = Section()
+        current_section.append(post)
         if split == "every_post":
-            yield out
-            out = Section()
-    if out.size > 0:
-        yield out
+            yield current_section
+            current_section = Section()
+    if current_section.size > 0:
+        yield current_section
 
 
 async def download_chapter(
@@ -298,7 +322,7 @@ async def download_chapters(
     fast_session: aiohttp.ClientSession,
     stamped_urls: list[StampedURL],
     image_map: ImageMap,
-    authors: OrderedDict,
+    authors: set,
     split: str,
 ) -> list[tuple[str, list[Section]]]:
     print("Downloading chapter texts")
@@ -325,7 +349,7 @@ async def download_chapters(
         ).text.strip()
         posts = chapter_soup.find_all("div", "post-container")
         rendered_chapters.append(
-            (title, list(render_posts(posts, image_map, authors, split)))
+            (title, list(render_posts(posts, image_map, authors, title, split)))
         )
     return rendered_chapters
 

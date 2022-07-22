@@ -1,5 +1,4 @@
 import argparse
-from collections import OrderedDict
 import os
 
 import aiohttp
@@ -22,6 +21,7 @@ from .render import (
 #   post was linked to from reply #114 of Mad investor chaos". <a>Return
 #   there</a>.
 # * Less bad covers
+# * Increase configurability of title page content
 
 
 ################
@@ -84,7 +84,7 @@ async def main():
 
             book = epub.EpubBook()
             image_map = ImageMap()
-            authors = OrderedDict()
+            authors = set()
 
             downloaded_chapters = await download_chapters(
                 slow_session,
@@ -114,7 +114,7 @@ async def main():
             for image in images:
                 book.add_item(image)
 
-            for author in authors.keys():
+            for author in sorted(authors):
                 book.add_author(author)
 
             book.toc = [chapter[0] for chapter in chapters]
