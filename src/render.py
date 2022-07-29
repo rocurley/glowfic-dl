@@ -52,7 +52,12 @@ div.post {
     page-break-inside: avoid;
 }
 .title, .authors {
-    text-align:center;
+    text-align: center;
+}
+.extlink::after {
+    content: "\u29c9";
+    vertical-align: super;
+	font-size: 0.7rem;
 }
 """.lstrip()
 
@@ -377,7 +382,7 @@ def compile_chapters(
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
 
-    # Replace external links with internal links where possible
+    # Replace external links with internal links where possible, and tag those which remain
     for (i, (title, sections)) in enumerate(chapters):
         for (j, section) in enumerate(sections):
             for a in section.html.find_all("a"):
@@ -391,12 +396,13 @@ def compile_chapters(
                     abs = ABSOLUTE_REPLY_RE.match(raw_url)
                     if abs is not None and abs.group("relative") in anchor_sections:
                         a["href"] = anchor_sections[abs.group("relative")]
-                    elif (
-                        url.netloc == ""
-                    ):  # Relative link to something not included here
+                    elif url.netloc == "":  # Relative external link
                         a["href"] = url._replace(
                             scheme="https", netloc="glowfic.com"
                         ).geturl()
+                        a["class"] = a.get("class", []) + ["extlink"]
+                    else:  # Absolute external link
+                        a["class"] = a.get("class", []) + ["extlink"]
 
     # Yield one list of EpubHTML objects per chapter
     for (i, (title, sections)) in enumerate(chapters):
