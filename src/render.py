@@ -14,7 +14,7 @@ from ebooklib import epub
 from lxml import etree
 from tqdm.asyncio import tqdm
 
-from .helpers import *
+from .helpers import make_filename_valid_for_epub3, process_image_for_epub3
 
 
 ################
@@ -51,6 +51,14 @@ div.post {
     border: solid grey 0.5em;
     page-break-inside: avoid;
 }
+.title, .authors {
+    text-align: center;
+}
+.extlink::after {
+    content: "\u29c9";
+    vertical-align: super;
+	font-size: 0.7rem;
+}
 """.lstrip()
 
 output_template = """
@@ -58,8 +66,6 @@ output_template = """
 <head>
 </head>
 <body>
-<div class="posts">
-</div>
 </body>
 </html>
 """.lstrip()
@@ -84,10 +90,12 @@ class MappedImage:
         self.downloaded = True
         if file is None:
             self.is_null = True
+            return
         processed = process_image_for_epub3(file)
         if processed is None:
             print(
-                "Downloaded %s, but it wasn't an image of EPUB3-compatible format" % url
+                "Downloaded %s, but it wasn't an image of EPUB3-compatible format or convertible thereto"
+                % url
             )
             self.is_null = True
         else:
@@ -152,13 +160,12 @@ class RenderedPost:
 class Section:
     def __init__(self):
         self.html = BeautifulSoup(output_template, "html.parser")
-        self.body = self.html.find("div")
+        self.body = self.html.find("body")
         self.size = 0
         self.link_targets = []
 
     def append(self, post: RenderedPost):
-        post_size = len(post.html.encode())
-        self.size += post_size
+        self.size += len(post.html.encode())
         self.body.append(post.html)
         self.link_targets.append(post.permalink)
 
@@ -261,18 +268,45 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 
 
 def render_posts(
-    posts: ResultSet, image_map: ImageMap, authors: OrderedDict
+    posts: ResultSet, image_map: ImageMap, authors: set, title: str, split: str
 ) -> Iterable[Section]:
-    out = Section()
-    for post in posts:
-        rendered = render_post(post, image_map)
-        post_size = len(rendered.html.encode())
-        if out.size + post_size > SECTION_SIZE_LIMIT and out.size > 0:
-            yield out
-            out = Section()
-        out.append(rendered)
-        authors[rendered.author] = True
-    yield out
+    rendered_posts = [render_post(post, image_map) for post in posts]
+
+    # Thread title page
+    thread_authors = set()
+    for post in rendered_posts:
+        thread_authors.add(post.author)
+    authors.update(thread_authors)
+
+    title_page = Section()
+    title_page.body.extend(
+        BeautifulSoup('<h2 class="title">%s</h2>' % title, "html.parser")
+    )
+    title_page.body.extend(
+        BeautifulSoup(
+            '<h3 class="authors">%s</h2>' % ", ".join(sorted(thread_authors)),
+            "html.parser",
+        )
+    )
+    yield title_page
+
+    # Thread posts
+    current_section = Section()
+    for post in rendered_posts:
+        post_size = len(post.html.encode())
+        if (
+            split == "if_large"
+            and current_section.size + post_size > SECTION_SIZE_LIMIT
+            and current_section.size > 0
+        ):
+            yield current_section
+            current_section = Section()
+        current_section.append(post)
+        if split == "every_post":
+            yield current_section
+            current_section = Section()
+    if current_section.size > 0:
+        yield current_section
 
 
 async def download_chapter(
@@ -293,7 +327,8 @@ async def download_chapters(
     fast_session: aiohttp.ClientSession,
     stamped_urls: list[StampedURL],
     image_map: ImageMap,
-    authors: OrderedDict,
+    authors: set,
+    split: str,
 ) -> list[tuple[str, list[Section]]]:
     print("Downloading chapter texts")
     chapter_soups = await tqdm.gather(
@@ -318,7 +353,9 @@ async def download_chapters(
             chapter_soup.find("span", id="post-title"), chapter_soup
         ).text.strip()
         posts = chapter_soup.find_all("div", "post-container")
-        rendered_chapters.append((title, list(render_posts(posts, image_map, authors))))
+        rendered_chapters.append(
+            (title, list(render_posts(posts, image_map, authors, title, split)))
+        )
     return rendered_chapters
 
 
@@ -345,7 +382,7 @@ def compile_chapters(
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
 
-    # Replace external links with internal links where possible
+    # Replace external links with internal links where possible, and tag those which remain
     for (i, (title, sections)) in enumerate(chapters):
         for (j, section) in enumerate(sections):
             for a in section.html.find_all("a"):
@@ -359,12 +396,13 @@ def compile_chapters(
                     abs = ABSOLUTE_REPLY_RE.match(raw_url)
                     if abs is not None and abs.group("relative") in anchor_sections:
                         a["href"] = anchor_sections[abs.group("relative")]
-                    elif (
-                        url.netloc == ""
-                    ):  # Relative link to something not included here
+                    elif url.netloc == "":  # Relative external link
                         a["href"] = url._replace(
                             scheme="https", netloc="glowfic.com"
                         ).geturl()
+                        a["class"] = a.get("class", []) + ["extlink"]
+                    else:  # Absolute external link
+                        a["class"] = a.get("class", []) + ["extlink"]
 
     # Yield one list of EpubHTML objects per chapter
     for (i, (title, sections)) in enumerate(chapters):

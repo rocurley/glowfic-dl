@@ -1,13 +1,18 @@
 import argparse
-from collections import OrderedDict
 import os
 
 import aiohttp
 import aiolimiter
 from ebooklib import epub
-from tqdm.asyncio import tqdm
 
-from .render import *
+from .render import (
+    stylesheet,
+    ImageMap,
+    compile_chapters,
+    download_chapters,
+    get_images_as_epub_items,
+    get_post_urls_and_title,
+)
 
 # TODO:
 # * Better kobo handling
@@ -16,6 +21,7 @@ from .render import *
 #   post was linked to from reply #114 of Mad investor chaos". <a>Return
 #   there</a>.
 # * Less bad covers
+# * Increase configurability of title page content
 
 
 ################
@@ -36,7 +42,14 @@ def get_args() -> argparse.Namespace:
         description="Download glowfic from the Glowfic Constellation."
     )
 
-    parser.add_argument("url", help="glowfic post, section, or board URL")
+    parser.add_argument("url", help="glowfic thread, section, or board URL")
+    parser.add_argument(
+        "--split",
+        "-s",
+        choices=["none", "if_large", "every_post"],
+        default="if_large",
+        help="how often (if at all) to split books' internal representations of threads into multiple files. 'none' means no splits occur; 'if_large' splits after every 200kB of internal file-size; 'every_post' splits after each post irrespective of size. Default: if_large",
+    )
 
     return parser.parse_args()
 
@@ -71,7 +84,7 @@ async def main():
 
             book = epub.EpubBook()
             image_map = ImageMap()
-            authors = OrderedDict()
+            authors = set()
 
             downloaded_chapters = await download_chapters(
                 slow_session,
@@ -80,6 +93,7 @@ async def main():
                 spec.stamped_urls,
                 image_map,
                 authors,
+                args.split,
             )
             chapters = list(compile_chapters(downloaded_chapters))
             for chapter in chapters:
@@ -100,7 +114,7 @@ async def main():
             for image in images:
                 book.add_item(image)
 
-            for author in authors.keys():
+            for author in sorted(authors):
                 book.add_author(author)
 
             book.toc = [chapter[0] for chapter in chapters]
