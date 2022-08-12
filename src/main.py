@@ -7,11 +7,16 @@ from ebooklib import epub
 
 from .render import (
     stylesheet,
+    Continuity,
     ImageMap,
+    Section,
+    Thread,
     compile_chapters,
     download_chapters,
+    generate_section_title_pages,
+    generate_toc_and_spine,
     get_images_as_epub_items,
-    get_post_urls_and_title,
+    get_book_structure,
 )
 
 # TODO:
@@ -44,11 +49,11 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument("url", help="glowfic thread, section, or board URL")
     parser.add_argument(
-        "--split",
         "-s",
+        "--split",
         choices=["none", "if_large", "every_post"],
         default="if_large",
-        help="how often (if at all) to split books' internal representations of threads into multiple files. 'none' means no splits occur; 'if_large' splits after every 200kB of internal file-size; 'every_post' splits after each post irrespective of size. Default: if_large",
+        help="how often (if at all) to split the output book's internal representations of threads into multiple files. 'none' means no splits occur except at thread boundaries; 'if_large' splits threads over 200kB in size after every 200kB; 'every_post' splits after each post irrespective of size. Default: if_large",
     )
 
     return parser.parse_args()
@@ -79,27 +84,43 @@ async def main():
         connector=aiohttp.TCPConnector(limit_per_host=1), cookies=cookies
     ) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
-            spec = await get_post_urls_and_title(slow_session, limiter, args.url)
-            print("Found %i chapters" % len(spec.stamped_urls))
+            book_structure = await get_book_structure(slow_session, limiter, args.url)
+            match book_structure:
+                case Thread():
+                    print("Found 1 thread")
+                case Section():
+                    print("Found %i threads" % len(book_structure.threads))
+                case Continuity():
+                    print(
+                        "Found %i sections and %i threads"
+                        % (len(book_structure.sections), len(book_structure.threads))
+                    )
 
             book = epub.EpubBook()
             image_map = ImageMap()
             authors = set()
 
-            downloaded_chapters = await download_chapters(
+            await download_chapters(
                 slow_session,
                 limiter,
                 fast_session,
-                spec.stamped_urls,
+                book_structure.threads,
                 image_map,
                 authors,
                 args.split,
             )
-            chapters = list(compile_chapters(downloaded_chapters))
-            for chapter in chapters:
-                for section in chapter:
+            compile_chapters(book_structure.threads)
+            if isinstance(book_structure, Continuity):
+                generate_section_title_pages(book_structure.sections)
+
+            for thread in book_structure.threads:
+                for section in thread.compiled_sections:
                     book.add_item(section)
-            book.set_title(spec.title)
+            if isinstance(book_structure, Continuity):
+                generate_section_title_pages(book_structure.sections)
+                for section in book_structure.sections:
+                    book.add_item(section.title_page)
+            book.set_title(book_structure.title)
 
             style = epub.EpubItem(
                 uid="style",
@@ -109,22 +130,16 @@ async def main():
             )
             book.add_item(style)
 
-            images = get_images_as_epub_items(image_map)
-
-            for image in images:
+            for image in get_images_as_epub_items(image_map):
                 book.add_item(image)
 
             for author in sorted(authors):
                 book.add_author(author)
 
-            book.toc = [chapter[0] for chapter in chapters]
+            book.toc, book.spine = generate_toc_and_spine(book_structure)
             book.add_item(epub.EpubNcx())
             book.add_item(epub.EpubNav())
 
-            book.spine = ["nav"] + [
-                section for chapter in chapters for section in chapter
-            ]
-
-            out_path = "%s.epub" % spec.title
+            out_path = "%s.epub" % book_structure.title
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
