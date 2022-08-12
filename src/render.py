@@ -395,7 +395,9 @@ async def download_chapters(
         )
 
 
-def map_permalinks_to_filenames(threads: list[Thread], chapter_digits: int) -> dict[str, str]:
+def map_permalinks_to_filenames(
+    threads: list[Thread], chapter_digits: int
+) -> dict[str, str]:
     anchor_sections = {}
     for i, thread in enumerate(threads):
         section_digits = len(str(len(thread.rendered_sections) - 1))
@@ -415,7 +417,9 @@ def map_permalinks_to_filenames(threads: list[Thread], chapter_digits: int) -> d
     return anchor_sections
 
 
-def replace_or_tag_external_links_from_sections(threads: list[Thread], chapter_digits: int):
+def replace_or_tag_external_links_from_sections(
+    threads: list[Thread], chapter_digits: int
+):
     anchor_sections = map_permalinks_to_filenames(threads, chapter_digits)
     for thread in threads:
         for section in thread.rendered_sections:
@@ -454,7 +458,9 @@ def compile_sections(threads: list[Thread], chapter_digits: int):
                 )
             )
             compiled_section = EpubHtml(
-                title=thread.title, file_name=file_name, media_type="application/xhtml+xml"
+                title=thread.title,
+                file_name=file_name,
+                media_type="application/xhtml+xml",
             )
             compiled_section.content = etree.tostring(
                 etree.fromstring(
@@ -485,10 +491,17 @@ def generate_section_title_pages(sections: list[Section]):
         )
         if section.description is not None:
             title_page.body.extend(
-                BeautifulSoup('<h3 class="description">%s</h2>' % section.description, "html.parser")
+                BeautifulSoup(
+                    '<h3 class="description">%s</h2>' % section.description,
+                    "html.parser",
+                )
             )
-        file_name = "Text/" + make_filename_valid_for_epub3("section%.*i (%s).xhtml" % (section_digits, i + 1, section.title))
-        compiled_title_page = EpubHtml(title=section.title, file_name=file_name, media_type="application/xhtml+xml")
+        file_name = "Text/" + make_filename_valid_for_epub3(
+            "section%.*i (%s).xhtml" % (section_digits, i + 1, section.title)
+        )
+        compiled_title_page = EpubHtml(
+            title=section.title, file_name=file_name, media_type="application/xhtml+xml"
+        )
         compiled_title_page.content = etree.tostring(
             etree.fromstring(
                 str(title_page.html), etree.XMLParser(remove_blank_text=True)
@@ -502,7 +515,9 @@ def generate_section_title_pages(sections: list[Section]):
         section.add_title_page(compiled_title_page)
 
 
-def generate_toc_and_spine(book_structure: Thread | Section | Continuity) -> tuple[list[EpubHtml | list[EpubHtml | list[EpubHtml]]], list[str | EpubHtml]]:
+def generate_toc_and_spine(
+    book_structure: Thread | Section | Continuity,
+) -> tuple[list[EpubHtml | list[EpubHtml | list[EpubHtml]]], list[str | EpubHtml]]:
     spine = ["nav"]
     match book_structure:
         case Thread():
@@ -510,15 +525,34 @@ def generate_toc_and_spine(book_structure: Thread | Section | Continuity) -> tup
             spine += book_structure.compiled_sections
         case Section():
             toc = [thread.compiled_sections[0] for thread in book_structure.threads]
-            spine += list(chain(*[thread.compiled_sections for thread in book_structure.threads]))
+            spine += list(
+                chain(*[thread.compiled_sections for thread in book_structure.threads])
+            )
         case Continuity():
             toc = []
             for section in book_structure.sections:
-                toc.append([section.title_page, [thread.compiled_sections[0] for thread in section.threads]])
-                spine += [section.title_page] + list(chain(*[thread.compiled_sections for thread in section.threads]))
+                toc.append(
+                    [
+                        section.title_page,
+                        [thread.compiled_sections[0] for thread in section.threads],
+                    ]
+                )
+                spine += [section.title_page] + list(
+                    chain(*[thread.compiled_sections for thread in section.threads])
+                )
             if book_structure.sectionless_threads is not None:
-                toc += [thread.compiled_sections[0] for thread in book_structure.sectionless_threads.threads]
-                spine += list(chain(*[thread.compiled_sections for thread in book_structure.sectionless_threads.threads]))
+                toc += [
+                    thread.compiled_sections[0]
+                    for thread in book_structure.sectionless_threads.threads
+                ]
+                spine += list(
+                    chain(
+                        *[
+                            thread.compiled_sections
+                            for thread in book_structure.sectionless_threads.threads
+                        ]
+                    )
+                )
     return toc, spine
 
 
