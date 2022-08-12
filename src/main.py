@@ -110,8 +110,6 @@ async def main():
                 args.split,
             )
             compile_chapters(book_structure.threads)
-            if isinstance(book_structure, Continuity):
-                generate_section_title_pages(book_structure.sections)
 
             for thread in book_structure.threads:
                 for section in thread.compiled_sections:
