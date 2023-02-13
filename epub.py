@@ -252,9 +252,7 @@ with st.sidebar:
     st.write("""
     Turn any glowfic into an .epub:
 
-    - Post: https://glowfic.com/posts/5111
-    - Board: https://glowfic.com/board_sections/703
-    - Continuity: https://glowfic.com/boards/215
+    - Post url: https://glowfic.com/posts/5111
 
     ***
     *Made by [Austin](https://manifold.markets/Austin), 
