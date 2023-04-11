@@ -124,7 +124,12 @@ async def main():
             book.spine = ["nav"] + [
                 section for chapter in chapters for section in chapter
             ]
-
+            
+            # Prevent failure on Windows when a disallowed character (any of \/:*?"<>|) appears in the title
+            allowed_chars = " 1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            getVals = list(filter(lambda x: x in allowed_chars, spec.title))
+            spec.title = "".join(getVals)
+            
             out_path = "%s.epub" % spec.title
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
