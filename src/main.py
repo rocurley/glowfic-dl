@@ -124,7 +124,11 @@ async def main():
             book.spine = ["nav"] + [
                 section for chapter in chapters for section in chapter
             ]
-
+            
+            # Prevent failure on Windows when a disallowed character (any of \/:*?"<>|) appears in the title
+            from src.helpers import make_filename_valid_for_epub3
+            spec.title = make_filename_valid_for_epub3(spec.title)
+            
             out_path = "%s.epub" % spec.title
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
