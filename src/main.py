@@ -126,9 +126,8 @@ async def main():
             ]
             
             # Prevent failure on Windows when a disallowed character (any of \/:*?"<>|) appears in the title
-            allowed_chars = " 1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            getVals = list(filter(lambda x: x in allowed_chars, spec.title))
-            spec.title = "".join(getVals)
+            from src.helpers import make_filename_valid_for_epub3
+            spec.title = make_filename_valid_for_epub3(spec.title)
             
             out_path = "%s.epub" % spec.title
             print("Saving book to %s" % out_path)
