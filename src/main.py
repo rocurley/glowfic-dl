@@ -5,6 +5,7 @@ import aiohttp
 import aiolimiter
 from ebooklib import epub
 
+from .helpers import make_filename_valid_for_epub3
 from .render import (
     stylesheet,
     ImageMap,
@@ -125,6 +126,6 @@ async def main():
                 section for chapter in chapters for section in chapter
             ]
 
-            out_path = "%s.epub" % spec.title
+            out_path = make_filename_valid_for_epub3("%s.epub" % spec.title)
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
