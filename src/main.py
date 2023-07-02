@@ -5,6 +5,7 @@ import aiohttp
 import aiolimiter
 from ebooklib import epub
 
+from .helpers import make_filename_valid_for_epub3
 from .render import (
     stylesheet,
     Continuity,
@@ -138,6 +139,6 @@ async def main():
             book.add_item(epub.EpubNcx())
             book.add_item(epub.EpubNav())
 
-            out_path = "%s.epub" % book_structure.title
+            out_path = make_filename_valid_for_epub3("%s.epub" % book_structure.title)
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
