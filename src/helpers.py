@@ -54,6 +54,7 @@ def process_image_for_epub3(source_image: bytes) -> Optional[tuple[bytes, str, s
 
     except UnidentifiedImageError:
         try:  # See if the file is an SVG
+            source_image_buffer.seek(0)
             possible_svg = etree.parse(source_image_buffer)
             possible_svg_root = possible_svg.getroot()
             if possible_svg_root.tag == "{http://www.w3.org/2000/svg}svg":
@@ -96,10 +97,8 @@ def make_filename_valid_for_epub3(filename: str) -> str:
     if len(filtered_filename.encode("utf-8")) <= 255:
         return filtered_filename
     else:
-        # Assumptions:
-        # * File extension exists and is <254 bytes in length
-        # * Filenames have unique numerical identifiers before the 255-byte
-        #   mark, such that truncation won't produce name collisions
+        # Assumption: filenames have unique numerical identifiers before the
+        # 255-byte mark, such that truncation won't produce name collisions
 
         split_filename = filtered_filename.split(".")
         ext = split_filename[-1]
