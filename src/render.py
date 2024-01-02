@@ -1,16 +1,14 @@
 import asyncio
-from collections import OrderedDict
-from datetime import datetime, timezone
+from itertools import chain
 import re
 from typing import Iterable, Optional
 from urllib.parse import urljoin, urlparse
-from zoneinfo import ZoneInfo
 
 import aiohttp
 import aiolimiter
 from bs4 import BeautifulSoup
 from bs4.element import Tag, ResultSet
-from ebooklib import epub
+from ebooklib.epub import EpubHtml, EpubItem
 from lxml import etree
 from tqdm.asyncio import tqdm
 
@@ -30,7 +28,6 @@ ABSOLUTE_REPLY_RE = re.compile(
 )
 
 GLOWFIC_ROOT = "https://glowfic.com"
-GLOWFIC_TZ = ZoneInfo("America/New_York")
 
 
 ###################
@@ -51,7 +48,7 @@ div.post {
     border: solid grey 0.5em;
     page-break-inside: avoid;
 }
-.title, .authors {
+.title, .authors, .description {
     text-align: center;
 }
 .extlink::after {
@@ -157,7 +154,7 @@ class RenderedPost:
         self.permalink_fragment = permalink_fragment
 
 
-class Section:
+class HtmlSection:
     def __init__(self):
         self.html = BeautifulSoup(output_template, "html.parser")
         self.body = self.html.find("body")
@@ -170,17 +167,64 @@ class Section:
         self.link_targets.append(post.permalink)
 
 
-class StampedURL:
-    def __init__(self, url: str, stamp: datetime):
-        self.url = url
-        self.stamp = stamp
-
-
-class BookSpec:
-    def __init__(self, stamped_urls: list[StampedURL], title: str):
-        self.stamped_urls = stamped_urls
+class Thread:
+    def __init__(self, title: str, url: str, description: Optional[str] = None):
         self.title = title
-        self.last_update = max((stamped_url.stamp for stamped_url in stamped_urls))
+        self.url = url
+        self.description = description
+
+        self.soup = None
+        self.rendered_sections = None
+        self.compiled_sections = None
+
+        self.threads = [self]
+
+    def add_soup(self, soup: BeautifulSoup):
+        self.soup = soup
+
+    def add_rendered_sections(self, rendered_sections: list[HtmlSection]):
+        self.rendered_sections = rendered_sections
+
+    def add_compiled_sections(self, compiled_sections: list[EpubHtml]):
+        self.compiled_sections = compiled_sections
+
+
+class Section:
+    def __init__(
+        self,
+        title: Optional[str],
+        threads: list[Thread],
+        description: Optional[str] = None,
+    ):
+        self.title = title
+        self.threads = threads
+        self.description = description
+
+        self.title_page = None
+
+    def add_title_page(self, title_page: EpubHtml):
+        self.title_page = title_page
+
+
+class Continuity:
+    def __init__(
+        self,
+        title: str,
+        sections: list[Section],
+        sectionless_threads: Optional[Section] = None,
+    ):
+        self.title = title
+        self.sections = sections
+        self.sectionless_threads = sectionless_threads
+
+        self.title_page = None
+
+        self.threads = list(chain(*[section.threads for section in self.sections]))
+        if sectionless_threads is not None:
+            self.threads += sectionless_threads.threads
+
+    def add_title_page(self, title_page: HtmlSection):
+        self.title_page = title_page
 
 
 ###################
@@ -269,7 +313,7 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 
 def render_posts(
     posts: ResultSet, image_map: ImageMap, authors: set, title: str, split: str
-) -> Iterable[Section]:
+) -> Iterable[HtmlSection]:
     rendered_posts = [render_post(post, image_map) for post in posts]
 
     # Thread title page
@@ -278,7 +322,7 @@ def render_posts(
         thread_authors.add(post.author)
     authors.update(thread_authors)
 
-    title_page = Section()
+    title_page = HtmlSection()
     title_page.body.extend(
         BeautifulSoup('<h2 class="title">%s</h2>' % title, "html.parser")
     )
@@ -291,7 +335,7 @@ def render_posts(
     yield title_page
 
     # Thread posts
-    current_section = Section()
+    current_section = HtmlSection()
     for post in rendered_posts:
         post_size = len(post.html.encode())
         if (
@@ -300,11 +344,11 @@ def render_posts(
             and current_section.size > 0
         ):
             yield current_section
-            current_section = Section()
+            current_section = HtmlSection()
         current_section.append(post)
         if split == "every_post":
             yield current_section
-            current_section = Section()
+            current_section = HtmlSection()
     if current_section.size > 0:
         yield current_section
 
@@ -312,33 +356,30 @@ def render_posts(
 async def download_chapter(
     session: aiohttp.ClientSession,
     limiter: aiolimiter.AsyncLimiter,
-    stamped_url: StampedURL,
-) -> BeautifulSoup:
+    thread: Thread,
+):
     await limiter.acquire()
-    resp = await session.get(stamped_url.url, params={"view": "flat"})
+    resp = await session.get(thread.url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
-    return soup
+    thread.add_soup(soup)
 
 
 async def download_chapters(
     slow_session: aiohttp.ClientSession,
     limiter: aiolimiter.AsyncLimiter,
     fast_session: aiohttp.ClientSession,
-    stamped_urls: list[StampedURL],
+    threads: list[Thread],
     image_map: ImageMap,
     authors: set,
     split: str,
-) -> list[tuple[str, list[Section]]]:
+):
     print("Downloading chapter texts")
-    chapter_soups = await tqdm.gather(
-        *[
-            download_chapter(slow_session, limiter, stamped_url)
-            for stamped_url in stamped_urls
-        ]
+    await tqdm.gather(
+        *[download_chapter(slow_session, limiter, thread) for thread in threads]
     )
-    for chapter_soup in chapter_soups:
-        posts = chapter_soup.find_all("div", "post-container")
+    for thread in threads:
+        posts = thread.soup.find_all("div", "post-container")
         populate_image_map(posts, image_map)
     print("Downloading images")
     await tqdm.gather(
@@ -347,28 +388,20 @@ async def download_chapters(
             for (url, mapped_image) in image_map.map.items()
         ]
     )
-    rendered_chapters = []
-    for chapter_soup in chapter_soups:
-        title = validate_tag(
-            chapter_soup.find("span", id="post-title"), chapter_soup
-        ).text.strip()
-        posts = chapter_soup.find_all("div", "post-container")
-        rendered_chapters.append(
-            (title, list(render_posts(posts, image_map, authors, title, split)))
+    for thread in threads:
+        posts = thread.soup.find_all("div", "post-container")
+        thread.add_rendered_sections(
+            list(render_posts(posts, image_map, authors, thread.title, split))
         )
-    return rendered_chapters
 
 
-def compile_chapters(
-    chapters: list[tuple[str, list[Section]]]
-) -> Iterable[list[epub.EpubHtml]]:
-    chapter_digits = len(str(len(chapters)))
+def map_permalinks_to_filenames(
+    threads: list[Thread], chapter_digits: int
+) -> dict[str, str]:
     anchor_sections = {}
-
-    # Map permalinks to file names
-    for (i, (title, sections)) in enumerate(chapters):
-        section_digits = len(str(len(sections) - 1))
-        for (j, section) in enumerate(sections):
+    for i, thread in enumerate(threads):
+        section_digits = len(str(len(thread.rendered_sections) - 1))
+        for (j, section) in enumerate(thread.rendered_sections):
             file_name = make_filename_valid_for_epub3(
                 "%.*i-%.*i (%s).xhtml"
                 % (
@@ -376,15 +409,20 @@ def compile_chapters(
                     i + 1,
                     section_digits,
                     j,
-                    title,
+                    thread.title,
                 )
             )
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
+    return anchor_sections
 
-    # Replace external links with internal links where possible, and tag those which remain
-    for (i, (title, sections)) in enumerate(chapters):
-        for (j, section) in enumerate(sections):
+
+def replace_or_tag_external_links_from_sections(
+    threads: list[Thread], chapter_digits: int
+):
+    anchor_sections = map_permalinks_to_filenames(threads, chapter_digits)
+    for thread in threads:
+        for section in thread.rendered_sections:
             for a in section.html.find_all("a"):
                 if "href" not in a.attrs:
                     continue
@@ -396,19 +434,19 @@ def compile_chapters(
                     abs = ABSOLUTE_REPLY_RE.match(raw_url)
                     if abs is not None and abs.group("relative") in anchor_sections:
                         a["href"] = anchor_sections[abs.group("relative")]
-                    elif url.netloc == "":  # Relative external link
-                        a["href"] = url._replace(
-                            scheme="https", netloc="glowfic.com"
-                        ).geturl()
+                    else:  # External link
                         a["class"] = a.get("class", []) + ["extlink"]
-                    else:  # Absolute external link
-                        a["class"] = a.get("class", []) + ["extlink"]
+                        if url.netloc == "":
+                            a["href"] = url._replace(
+                                scheme="https", netloc="glowfic.com"
+                            ).geturl()
 
-    # Yield one list of EpubHTML objects per chapter
-    for (i, (title, sections)) in enumerate(chapters):
-        section_digits = len(str(len(sections) - 1))
+
+def compile_sections(threads: list[Thread], chapter_digits: int):
+    for i, thread in enumerate(threads):
+        section_digits = len(str(len(thread.rendered_sections) - 1))
         compiled_sections = []
-        for (j, section) in enumerate(sections):
+        for j, section in enumerate(thread.rendered_sections):
             file_name = "Text/" + make_filename_valid_for_epub3(
                 "%.*i-%.*i (%s).xhtml"
                 % (
@@ -416,11 +454,13 @@ def compile_chapters(
                     i + 1,
                     section_digits,
                     j,
-                    title,
+                    thread.title,
                 )
             )
-            compiled_section = epub.EpubHtml(
-                title=title, file_name=file_name, media_type="application/xhtml+xml"
+            compiled_section = EpubHtml(
+                title=thread.title,
+                file_name=file_name,
+                media_type="application/xhtml+xml",
             )
             compiled_section.content = etree.tostring(
                 etree.fromstring(
@@ -433,7 +473,87 @@ def compile_chapters(
                 href="../style.css", rel="stylesheet", type="text/css"
             )
             compiled_sections.append(compiled_section)
-        yield compiled_sections
+        thread.add_compiled_sections(compiled_sections)
+
+
+def compile_chapters(threads: list[Thread]) -> Iterable[list[EpubHtml]]:
+    chapter_digits = len(str(len(threads)))
+    replace_or_tag_external_links_from_sections(threads, chapter_digits)
+    compile_sections(threads, chapter_digits)
+
+
+def generate_section_title_pages(sections: list[Section]):
+    section_digits = len(str(len(sections)))
+    for i, section in enumerate(sections):
+        title_page = HtmlSection()
+        title_page.body.extend(
+            BeautifulSoup('<h1 class="title">%s</h1>' % section.title, "html.parser")
+        )
+        if section.description is not None:
+            title_page.body.extend(
+                BeautifulSoup(
+                    '<h3 class="description">%s</h2>' % section.description,
+                    "html.parser",
+                )
+            )
+        file_name = "Text/" + make_filename_valid_for_epub3(
+            "section%.*i (%s).xhtml" % (section_digits, i + 1, section.title)
+        )
+        compiled_title_page = EpubHtml(
+            title=section.title, file_name=file_name, media_type="application/xhtml+xml"
+        )
+        compiled_title_page.content = etree.tostring(
+            etree.fromstring(
+                str(title_page.html), etree.XMLParser(remove_blank_text=True)
+            ),
+            encoding="unicode",
+            pretty_print=True,
+        )
+        compiled_title_page.add_link(
+            href="../style.css", rel="stylesheet", type="text/css"
+        )
+        section.add_title_page(compiled_title_page)
+
+
+def generate_toc_and_spine(
+    book_structure: Thread | Section | Continuity,
+) -> tuple[list[EpubHtml | list[EpubHtml | list[EpubHtml]]], list[str | EpubHtml]]:
+    spine = ["nav"]
+    match book_structure:
+        case Thread():
+            toc = [book_structure.compiled_sections[0]]
+            spine += book_structure.compiled_sections
+        case Section():
+            toc = [thread.compiled_sections[0] for thread in book_structure.threads]
+            spine += list(
+                chain(*[thread.compiled_sections for thread in book_structure.threads])
+            )
+        case Continuity():
+            toc = []
+            for section in book_structure.sections:
+                toc.append(
+                    [
+                        section.title_page,
+                        [thread.compiled_sections[0] for thread in section.threads],
+                    ]
+                )
+                spine += [section.title_page] + list(
+                    chain(*[thread.compiled_sections for thread in section.threads])
+                )
+            if book_structure.sectionless_threads is not None:
+                toc += [
+                    thread.compiled_sections[0]
+                    for thread in book_structure.sectionless_threads.threads
+                ]
+                spine += list(
+                    chain(
+                        *[
+                            thread.compiled_sections
+                            for thread in book_structure.sectionless_threads.threads
+                        ]
+                    )
+                )
+    return toc, spine
 
 
 def validate_tag(tag: Tag, soup: BeautifulSoup) -> Tag:
@@ -446,44 +566,83 @@ def validate_tag(tag: Tag, soup: BeautifulSoup) -> Tag:
         raise RuntimeError("Unknown error: tag missing")
 
 
-def stamped_url_from_board_row(row: Tag) -> StampedURL:
-    url = urljoin(GLOWFIC_ROOT, row.find("a")["href"])
-    ts_raw = (
-        next(row.parent.find("td", class_="post-time").strings).split("by")[0].strip()
-    )
-    ts_local = datetime.strptime(ts_raw, "%b %d, %Y  %I:%M %p").replace(
-        tzinfo=GLOWFIC_TZ
-    )
-    ts = ts_local.astimezone(timezone.utc)
-    return StampedURL(url, ts)
+def thread_from_board_row(row: Tag) -> Thread:
+    thread_link = row.find("a")
+    title = thread_link.text.strip()
+    description = thread_link.get("title")
+    url = urljoin(GLOWFIC_ROOT, thread_link["href"])
+    return Thread(title, url, description)
 
 
-async def get_post_urls_and_title(
+def sections_from_board_rows(rows: ResultSet) -> Iterable[Section]:
+    current_title = None
+    current_threads = []
+    current_description = None
+
+    for row in rows:
+        if (title := row.find("th", "continuity-header")) is not None:
+            current_title = next(title.children).text.strip()
+        elif (description := row.find("td", "written-content")) is not None:
+            current_description = description.text.strip()
+        elif (thread := row.find("td", "post-subject")) is not None:
+            current_threads.append(thread_from_board_row(thread))
+        elif row.find("td", "continuity-spacer") is not None:
+            if len(current_threads) == 0:
+                current_title = None
+                current_description = None
+                continue
+            elif current_title is not None:
+                yield Section(current_title, current_threads, current_description)
+                current_title = None
+                current_threads = []
+                current_description = None
+            else:
+                raise Exception(
+                    "Encountered nonfinal titleless section. (This should be impossible.)"
+                )
+
+    if len(current_threads) > 0:
+        yield Section(current_title, current_threads, current_description)
+
+
+async def get_book_structure(
     session: aiohttp.ClientSession, limiter: aiolimiter.AsyncLimiter, url: str
-) -> BookSpec:
+) -> Thread | Section | Continuity:
+    target_url = (
+        "https://glowfic.com/api/v1%s" % urlparse(url).path if "posts" in url else url
+    )
+    await limiter.acquire()
+    resp = await session.get(target_url)
     if "posts" in url:
-        api_url = "https://glowfic.com/api/v1%s" % urlparse(url).path
-        await limiter.acquire()
-        resp = await session.get(api_url)
         post_json = await resp.json()
-        ts = datetime.strptime(post_json["tagged_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(
-            tzinfo=timezone.utc
-        )
-        title = post_json["subject"]
-        return BookSpec(stamped_urls=[StampedURL(url, ts)], title=title)
-    if "board_sections" in url or "boards" in url:
-        await limiter.acquire()
-        resp = await session.get(url)
+        return Thread(post_json["subject"], url, post_json.get("description"))
+    elif "board_sections" in url:
         soup = BeautifulSoup(await resp.text(), "html.parser")
+        title = soup.find("th", "table-title").text.strip()
+        description = soup.find("td", "written-content")
+        if description is not None:
+            description = description.text.strip()
         rows = validate_tag(soup.find("div", id="content"), soup).find_all(
             "td", "post-subject"
         )
-        stamped_urls = [stamped_url_from_board_row(row) for row in rows]
-        title = soup.find("th", "table-title").contents[0].strip()
-        return BookSpec(title=title, stamped_urls=stamped_urls)
+        threads = [thread_from_board_row(row) for row in rows]
+        return Section(title, threads, description)
+    elif "boards" in url:
+        soup = BeautifulSoup(await resp.text(), "html.parser")
+        title = next(soup.find("th", "table-title").children).strip()
+        rows = validate_tag(soup.find("div", id="content"), soup).find_all("tr")
+        sections = list(sections_from_board_rows(rows))
+        if sections[-1].title is None:
+            return Continuity(title, sections[:-1], sections[-1])
+        else:
+            return Continuity(title, sections)
+    else:
+        raise ValueError(
+            "URL contains neither 'posts' nor 'board_sections' nor 'boards'."
+        )
 
 
-def get_images_as_epub_items(image_map: ImageMap):
+def get_images_as_epub_items(image_map: ImageMap) -> list[EpubItem]:
     items = []
     for url, mapped_image in image_map.map.items():
         match mapped_image.name:
@@ -496,7 +655,7 @@ def get_images_as_epub_items(image_map: ImageMap):
         if filename is None:
             continue
         items.append(
-            epub.EpubItem(
+            EpubItem(
                 uid=filename,
                 file_name=filename,
                 media_type=mapped_image.media_type,
