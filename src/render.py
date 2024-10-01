@@ -13,7 +13,7 @@ from lxml import etree
 from tqdm.asyncio import tqdm
 
 from .helpers import make_filename_valid_for_epub3, process_image_for_epub3
-from .auth import login
+from .auth import auth_get
 from .constants import GLOWFIC_ROOT
 
 
@@ -359,7 +359,7 @@ async def download_chapter(
     thread: Thread,
 ):
     await limiter.acquire()
-    resp = await session.get(thread.url, params={"view": "flat"})
+    resp = await auth_get(session, thread.url, params={"view": "flat"})
     soup = BeautifulSoup(await resp.text(), "html.parser")
     resp.close()
     thread.add_soup(soup)
@@ -612,11 +612,7 @@ async def get_book_structure(
         "https://glowfic.com/api/v1%s" % urlparse(url).path if "posts" in url else url
     )
     await limiter.acquire()
-    resp = await session.get(target_url)
-    if resp.status == 403:
-        await login(session)
-        resp = await session.get(target_url)
-        assert resp.status != 403
+    resp = await auth_get(session, target_url)
 
     if "posts" in url:
         post_json = await resp.json()

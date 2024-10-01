@@ -79,4 +79,10 @@ async def get_authenticity_token(session):
     return authenticity_token.attrs["value"]
 
 
-asyncio.run(main())
+async def auth_get(session, url, **kwargs):
+    resp = await session.get(url, **kwargs)
+    if resp.status == 403:
+        await login(session)
+        resp = await session.get(url)
+        assert resp.status != 403
+    return resp
