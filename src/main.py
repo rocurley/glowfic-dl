@@ -30,14 +30,6 @@ from .render import (
 # * Increase configurability of title page content
 
 
-################
-##   Consts   ##
-################
-
-
-COOKIE_NAME = "_glowfic_constellation_production"
-
-
 ###################
 ##   Functions   ##
 ###################
@@ -60,29 +52,12 @@ def get_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def get_cookies() -> dict[str, str]:
-    cookies = {}
-
-    if os.path.exists("cookie"):
-        with open("cookie", "r") as fin:
-            raw = fin.read()
-            (name, cookie) = raw.split("=")
-            if name != COOKIE_NAME:
-                raise ValueError(
-                    'cookie file must start with "%s=" (no quotes)' % COOKIE_NAME
-                )
-            cookies[COOKIE_NAME] = cookie.strip()
-
-    return cookies
-
-
 async def main():
     args = get_args()
-    cookies = get_cookies()
 
     limiter = aiolimiter.AsyncLimiter(1, 1)
     async with aiohttp.ClientSession(
-        connector=aiohttp.TCPConnector(limit_per_host=1), cookies=cookies
+        connector=aiohttp.TCPConnector(limit_per_host=1)
     ) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
             book_structure = await get_book_structure(slow_session, limiter, args.url)

@@ -16,7 +16,7 @@ pipenv install
 pipenv shell
 ```
 
-If you want to access private posts, you can put your `_glowfic_constellation_production` cookie into a file called `cookie`.
+If you want to access private posts, you will be prompted to enter your glowfic credentials, which will be saved if you request it.
 
 To run tests (requires `pytest` to be installed, or the pipenv shell to be active):
 ```

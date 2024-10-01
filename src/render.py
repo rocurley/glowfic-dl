@@ -13,6 +13,8 @@ from lxml import etree
 from tqdm.asyncio import tqdm
 
 from .helpers import make_filename_valid_for_epub3, process_image_for_epub3
+from .auth import login
+from .constants import GLOWFIC_ROOT
 
 
 ################
@@ -26,8 +28,6 @@ RELATIVE_REPLY_RE = re.compile(r"/(replies|posts)/\d*")
 ABSOLUTE_REPLY_RE = re.compile(
     r"https?://(www.)?glowfic.com(?P<relative>/(replies|posts)/\d*)"
 )
-
-GLOWFIC_ROOT = "https://glowfic.com"
 
 
 ###################
@@ -613,6 +613,11 @@ async def get_book_structure(
     )
     await limiter.acquire()
     resp = await session.get(target_url)
+    if resp.status == 403:
+        await login(session)
+        resp = await session.get(target_url)
+        assert resp.status != 403
+
     if "posts" in url:
         post_json = await resp.json()
         return Thread(post_json["subject"], url, post_json.get("description"))

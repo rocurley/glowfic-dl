@@ -6,20 +6,19 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import json
 
-# TODO: use this
-# from .render import GLOWFIC_ROOT
+from .constants import GLOWFIC_ROOT
 
-GLOWFIC_ROOT = "https://glowfic.com"
-# TODO: import this
+################
+##   Consts   ##
+################
+
+
 COOKIE_NAME = "_glowfic_constellation_production"
 
 
-async def main():
-    async with aiohttp.ClientSession() as session:
-        await login(session)
-        resp = await session.get("https://www.glowfic.com/api/v1/posts/6755")
-        text = await resp.text()
-        print(text)
+###################
+##   Functions   ##
+###################
 
 
 def get_creds():
@@ -27,6 +26,7 @@ def get_creds():
         with open("creds.json", "r") as fin:
             d = json.load(fin)
         return (d["username"], d["password"])
+    print("Login required.")
     username = input("Username: ")
     password = getpass()
     save_str = input("Save credentials to file? [y/N]")
