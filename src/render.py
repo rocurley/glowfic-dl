@@ -6,7 +6,7 @@ from urllib.parse import urljoin, urlparse
 
 import aiohttp
 import aiolimiter
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, PageElement
 from bs4.element import Tag, ResultSet
 from ebooklib.epub import EpubHtml, EpubItem
 from lxml import etree
@@ -312,7 +312,11 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 
 
 def render_posts(
-    posts: ResultSet, image_map: ImageMap, authors: set, title: str, split: str
+    posts: Iterable[Tag],
+    image_map: ImageMap,
+    authors: set,
+    title: str,
+    split: str,
 ) -> Iterable[HtmlSection]:
     rendered_posts = [render_post(post, image_map) for post in posts]
 
@@ -389,7 +393,12 @@ async def download_chapters(
         ]
     )
     for thread in threads:
-        posts = thread.soup.find_all("div", "post-container")
+        # Evil posts (presumably caused by html copy-pasting?) may have post-containers within post-containers.
+        # So we only check direct descendents of flat-post-replies.
+        first_post = thread.soup.find("div", "post-post")
+        replies_container = thread.soup.find("div", "flat-post-replies")
+        replies = replies_container.find_all("div", "post-container", recursive=False)
+        posts = chain([first_post], replies)
         thread.add_rendered_sections(
             list(render_posts(posts, image_map, authors, thread.title, split))
         )
