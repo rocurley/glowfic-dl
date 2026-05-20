@@ -15,6 +15,7 @@ lxml = "*"
 pillow = "*"
 tqdm = "*"
 tzdata = "*"
+typing-extensions = "*"
 
 [dev-packages]
 black = "*"

@@ -1,9 +1,13 @@
 import asyncio
 from enum import Enum
 from itertools import chain
+from os import PathLike
+from pathlib import Path
 import re
 from typing import Iterable, Optional, Union
+from typing_extensions import Self
 from urllib.parse import urljoin, urlparse
+from hashlib import sha256
 
 import aiohttp
 import aiolimiter
@@ -96,9 +100,9 @@ ImageData = Union[Uninitialized, Failed, Succeeded]
 
 
 class MappedImage:
-    def __init__(self, name: str, id: int):
-        self.name = name
-        self.id = id
+    def __init__(self, type: str, hash: str):
+        self.type = type
+        self.hash: str = hash
         self.data: ImageData = Uninitialized()
 
     def add_file(self, file: Optional[bytes], url: str):
@@ -116,7 +120,7 @@ class MappedImage:
             file, media_type, ext = processed
             self.data = Succeeded(file=file, media_type=media_type, ext=ext)
 
-    def get_filename(self, id_width: int) -> Optional[str]:
+    def get_filename(self) -> Optional[str]:
         match self.data:
             case Uninitialized():
                 raise RuntimeError(
@@ -125,42 +129,61 @@ class MappedImage:
             case Failed():
                 return None
             case Succeeded(ext=ext):
-                return "Images/%s%.*i.%s" % (self.name, id_width, self.id, ext)
+                return "Images/%s_%s.%s" % (self.type, self.hash, ext)
+
+    @classmethod
+    def from_file(cls, filename: Path, file: bytes) -> Self:
+        [ty, hash] = filename.stem.split("_")
+        expected_ext = filename.suffix.strip(".")
+        out = cls(ty, hash)
+        match process_image_for_epub3(file):
+            case None:
+                raise Exception("Unexpectedly invalid image found in cached epub")
+            case [file, media_type, ext]:
+                assert ext == expected_ext
+                out.data = Succeeded(file=file, media_type=media_type, ext=ext)
+                return out
 
 
 class ImageMap:
     def __init__(self):
-        self.map: dict[str, MappedImage] = {}
-        self.next_icon = 0
-        self.icon_id_width = 1
-        self.next_image = 0
-        self.image_id_width = 1
+        self.map: dict[str, MappedImage] = {}  # url -> image
+        self.cached_images: dict[str, MappedImage] = {}  # hash -> image
 
     def add_icon(self, url: str):
-        if url not in self.map:
-            self.map[url] = MappedImage("icon", self.next_icon)
-            self.icon_id_width = len(str(self.next_icon))
-            self.next_icon += 1
+        self._add_image_untyped(url, "icon")
 
     def add_image(self, url: str):
-        if url not in self.map:
-            self.map[url] = MappedImage("image", self.next_image)
-            self.image_id_width = len(str(self.next_image))
-            self.next_image += 1
+        self._add_image_untyped(url, "image")
+
+    def _add_image_untyped(self, url: str, ty: str):
+        if url in self.map:
+            return
+        hash = sha256(url.encode("utf-8")).hexdigest()
+        image = self.cached_images.get(hash)
+        if image is None:
+            image = MappedImage(ty, hash)
+        else:
+            assert image.type == ty
+        self.map[url] = image
+
+    def add_cached_image(self, filename: Path, file: bytes):
+        image = MappedImage.from_file(filename, file)
+        self.cached_images[image.hash] = image
 
     def get_icon_name(self, url: str) -> Optional[str]:
         if url not in self.map:
             raise ValueError(
                 "Attempted to get icon not in image map. (This indicates a prior map population failure.)"
             )
-        return self.map[url].get_filename(self.icon_id_width)
+        return self.map[url].get_filename()
 
     def get_image_name(self, url: str) -> Optional[str]:
         if url not in self.map:
             raise ValueError(
                 "Attempted to get image not in image map. (This indicates a prior map population failure.)"
             )
-        return self.map[url].get_filename(self.image_id_width)
+        return self.map[url].get_filename()
 
 
 class RenderedPost:
@@ -267,9 +290,19 @@ def populate_image_map(posts: ResultSet, image_map: ImageMap):
 async def download_image(
     session: aiohttp.ClientSession, url: str, mapped_image: MappedImage
 ):
+    if isinstance(mapped_image.data, Succeeded):
+        return
     try:
-        async with session.get(url, timeout=15) as resp:
+        headers = {}
+        if "imgur" in url:
+            headers = {"user-agent": "curl/8.1.1", "accept": "*/*"}
+        async with session.get(url, timeout=15, headers=headers) as resp:
             file = await resp.read()
+            if len(file) == 0:
+                print("Empty download for %s" % url)
+                print(resp)
+                file = None
+
     except (aiohttp.ClientError, asyncio.TimeoutError):
         print("Failed to download %s" % url)
         file = None
@@ -676,7 +709,7 @@ def get_images_as_epub_items(image_map: ImageMap) -> list[EpubItem]:
     for url, mapped_image in image_map.map.items():
         if not isinstance(mapped_image.data, Succeeded):
             continue
-        match mapped_image.name:
+        match mapped_image.type:
             case "icon":
                 filename = image_map.get_icon_name(url)
             case "image":
