@@ -1,11 +1,13 @@
 import asyncio
+from enum import Enum
 from itertools import chain
 import re
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Union
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
 import aiolimiter
+from dataclasses import dataclass
 from bs4 import BeautifulSoup, PageElement
 from bs4.element import Tag, ResultSet
 from ebooklib.epub import EpubHtml, EpubItem
@@ -73,20 +75,35 @@ output_template = """
 #################
 
 
+@dataclass
+class Uninitialized:
+    pass
+
+
+@dataclass
+class Failed:
+    pass
+
+
+@dataclass
+class Succeeded:
+    file: bytes
+    media_type: str
+    ext: str
+
+
+ImageData = Union[Uninitialized, Failed, Succeeded]
+
+
 class MappedImage:
     def __init__(self, name: str, id: int):
         self.name = name
         self.id = id
-        self.downloaded = False
-        self.is_null = False
-        self.file = None
-        self.media_type = None
-        self.ext = None
+        self.data: ImageData = Uninitialized()
 
     def add_file(self, file: Optional[bytes], url: str):
-        self.downloaded = True
         if file is None:
-            self.is_null = True
+            self.data = Failed()
             return
         processed = process_image_for_epub3(file)
         if processed is None:
@@ -94,24 +111,26 @@ class MappedImage:
                 "Downloaded %s, but it wasn't an image of EPUB3-compatible format or convertible thereto"
                 % url
             )
-            self.is_null = True
+            self.data = Failed()
         else:
-            self.file, self.media_type, self.ext = processed
+            file, media_type, ext = processed
+            self.data = Succeeded(file=file, media_type=media_type, ext=ext)
 
     def get_filename(self, id_width: int) -> Optional[str]:
-        if not self.downloaded:
-            raise RuntimeError(
-                "Attempted to get mapped image filename before getting it as a file. (This indicates a prior map population failure.)"
-            )
-        elif self.is_null:
-            return None
-        else:
-            return "Images/%s%.*i.%s" % (self.name, id_width, self.id, self.ext)
+        match self.data:
+            case Uninitialized():
+                raise RuntimeError(
+                    "Attempted to get mapped image filename before getting it as a file. (This indicates a prior map population failure.)"
+                )
+            case Failed():
+                return None
+            case Succeeded(ext=ext):
+                return "Images/%s%.*i.%s" % (self.name, id_width, self.id, ext)
 
 
 class ImageMap:
     def __init__(self):
-        self.map = {}
+        self.map: dict[str, MappedImage] = {}
         self.next_icon = 0
         self.icon_id_width = 1
         self.next_image = 0
@@ -655,6 +674,8 @@ async def get_book_structure(
 def get_images_as_epub_items(image_map: ImageMap) -> list[EpubItem]:
     items = []
     for url, mapped_image in image_map.map.items():
+        if not isinstance(mapped_image.data, Succeeded):
+            continue
         match mapped_image.name:
             case "icon":
                 filename = image_map.get_icon_name(url)
@@ -662,14 +683,13 @@ def get_images_as_epub_items(image_map: ImageMap) -> list[EpubItem]:
                 filename = image_map.get_image_name(url)
             case _:
                 raise ValueError("Mapped image name is neither 'icon' nor 'image'.")
-        if filename is None:
-            continue
+        assert filename is not None
         items.append(
             EpubItem(
                 uid=filename,
                 file_name=filename,
-                media_type=mapped_image.media_type,
-                content=mapped_image.file,
+                media_type=mapped_image.data.media_type,
+                content=mapped_image.data.file,
             )
         )
     return items
