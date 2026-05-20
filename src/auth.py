@@ -79,7 +79,9 @@ async def get_authenticity_token(session):
     return authenticity_token.attrs["value"]
 
 
-async def auth_get(session, url, **kwargs):
+async def auth_get(
+    session: aiohttp.ClientSession, url, **kwargs
+) -> aiohttp.ClientResponse:
     resp = await session.get(url, **kwargs)
     if resp.status == 403:
         await login(session)

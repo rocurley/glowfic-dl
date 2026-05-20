@@ -1,10 +1,11 @@
 import asyncio
-from enum import Enum
+import math
 from itertools import chain
-from os import PathLike
+import itertools
 from pathlib import Path
 import re
-from typing import Iterable, Optional, Union
+from typing import Any, Iterable, Optional, Union
+import ebooklib
 from typing_extensions import Self
 from urllib.parse import urljoin, urlparse
 from hashlib import sha256
@@ -14,7 +15,7 @@ import aiolimiter
 from dataclasses import dataclass
 from bs4 import BeautifulSoup, PageElement
 from bs4.element import Tag, ResultSet
-from ebooklib.epub import EpubHtml, EpubItem
+from ebooklib.epub import EpubHtml, EpubItem, EpubBook
 from lxml import etree
 from tqdm.asyncio import tqdm
 
@@ -185,6 +186,10 @@ class ImageMap:
             )
         return self.map[url].get_filename()
 
+    def populate_from_book(self, book: EpubBook):
+        for image in book.get_items_of_type(ebooklib.ITEM_IMAGE):
+            self.add_cached_image(Path(image.get_name()), image.get_content())
+
 
 class RenderedPost:
     def __init__(
@@ -230,6 +235,11 @@ class Thread:
     def add_compiled_sections(self, compiled_sections: list[EpubHtml]):
         self.compiled_sections = compiled_sections
 
+    @classmethod
+    def from_json(cls, post_json):
+        url = "https://glowfic.com//posts/%d" % post_json["id"]
+        return cls(post_json["subject"], url, post_json.get("description"))
+
 
 class Section:
     def __init__(
@@ -243,6 +253,12 @@ class Section:
         self.description = description
 
         self.title_page = None
+
+    @classmethod
+    def from_jsons(cls, name: str | None, post_jsons) -> Self:
+        post_jsons.sort(key=lambda j: j["section_order"])
+        threads = [Thread.from_json(post_json) for post_json in post_jsons]
+        return cls(title=name, threads=threads)
 
     def add_title_page(self, title_page: EpubHtml):
         self.title_page = title_page
@@ -291,6 +307,7 @@ async def download_image(
     session: aiohttp.ClientSession, url: str, mapped_image: MappedImage
 ):
     if isinstance(mapped_image.data, Succeeded):
+        print("Cache hit for %s" % url)
         return
     try:
         headers = {}
@@ -666,19 +683,27 @@ def sections_from_board_rows(rows: ResultSet) -> Iterable[Section]:
         yield Section(current_title, current_threads, current_description)
 
 
+@dataclass(frozen=True)
+class SectionInfo:
+    id: int
+    name: str
+    order: int
+
+
 async def get_book_structure(
     session: aiohttp.ClientSession, limiter: aiolimiter.AsyncLimiter, url: str
 ) -> Thread | Section | Continuity:
-    target_url = (
-        "https://glowfic.com/api/v1%s" % urlparse(url).path if "posts" in url else url
-    )
-    await limiter.acquire()
-    resp = await auth_get(session, target_url)
 
     if "posts" in url:
+        target_url = "https://glowfic.com/api/v1%s" % urlparse(url).path
+        await limiter.acquire()
+        resp = await auth_get(session, target_url)
         post_json = await resp.json()
-        return Thread(post_json["subject"], url, post_json.get("description"))
+        return Thread.from_json(post_json)
     elif "board_sections" in url:
+        target_url = url
+        await limiter.acquire()
+        resp = await auth_get(session, target_url)
         soup = BeautifulSoup(await resp.text(), "html.parser")
         title = soup.find("th", "table-title").text.strip()
         description = soup.find("td", "written-content")
@@ -690,12 +715,37 @@ async def get_book_structure(
         threads = [thread_from_board_row(row) for row in rows]
         return Section(title, threads, description)
     elif "boards" in url:
-        soup = BeautifulSoup(await resp.text(), "html.parser")
-        title = next(soup.find("th", "table-title").children).strip()
-        rows = validate_tag(soup.find("div", id="content"), soup).find_all("tr")
-        sections = list(sections_from_board_rows(rows))
-        if sections[-1].title is None:
-            return Continuity(title, sections[:-1], sections[-1])
+        target_url = "https://glowfic.com/api/v1%s" % urlparse(url).path
+        await limiter.acquire()
+        resp = await auth_get(session, target_url)
+        board_json = await resp.json()
+        title = board_json["name"]
+        target_url = "https://glowfic.com/api/v1%s/posts" % urlparse(url).path
+        by_section: dict[SectionInfo | None, list[Any]] = {}
+        for page in itertools.count(start=1):
+            await limiter.acquire()
+            resp = await auth_get(session, target_url, params={"page": page})
+            posts_json = await resp.json()
+            for post_json in posts_json["results"]:
+                section = post_json.get("section")
+                if section is not None:
+                    section = SectionInfo(
+                        id=section["id"], name=section["name"], order=section["order"]
+                    )
+                else:
+                    section = None  # Help the typechecker out
+                if section not in by_section:
+                    by_section[section] = []
+                by_section[section].append(post_json)
+            if len(posts_json) < 25:
+                # 25 results per page, so we're done now.
+                break
+        by_section_list = list((k, v) for (k, v) in by_section.items() if k is not None)
+        by_section_list.sort(key=lambda kv: kv[0].order)
+        sections = [Section.from_jsons(k.name, v) for (k, v) in by_section_list]
+        if None in by_section:
+            null_section = Section.from_jsons(None, by_section[None])
+            return Continuity(title, sections, null_section)
         else:
             return Continuity(title, sections)
     else:

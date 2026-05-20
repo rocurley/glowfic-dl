@@ -72,8 +72,15 @@ async def main():
                         % (len(book_structure.sections), len(book_structure.threads))
                     )
 
+            out_path = make_filename_valid_for_epub3("%s.epub" % book_structure.title)
+            try:
+                old_book = epub.read_epub(out_path)
+            except:
+                old_book = None
             book = epub.EpubBook()
             image_map = ImageMap()
+            if old_book:
+                image_map.populate_from_book(old_book)
             authors = set()
 
             await download_chapters(
@@ -114,6 +121,5 @@ async def main():
             book.add_item(epub.EpubNcx())
             book.add_item(epub.EpubNav())
 
-            out_path = make_filename_valid_for_epub3("%s.epub" % book_structure.title)
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
