@@ -216,16 +216,11 @@ class HtmlSection:
 
 
 class Thread:
-    def __init__(
-        self,
-        title: str,
-        url: str,
-        updated_at: datetime,
-        description: Optional[str] = None,
-    ):
-        self.title = title
-        self.url = url
-        self.description = description
+    def __init__(self, post_json):
+        self.title = post_json["subject"]
+        self.url = "https://glowfic.com//posts/%d" % post_json["id"]
+        self.updated_at = (datetime.fromisoformat(post_json["tagged_at"].strip("Z")),)
+        self.description = post_json.get("description")
 
         self.soup = None
         self.rendered_sections = None
@@ -241,16 +236,6 @@ class Thread:
 
     def add_compiled_sections(self, compiled_sections: list[EpubHtml]):
         self.compiled_sections = compiled_sections
-
-    @classmethod
-    def from_json(cls, post_json):
-        url = "https://glowfic.com//posts/%d" % post_json["id"]
-        return cls(
-            post_json["subject"],
-            url,
-            datetime.fromisoformat(post_json["tagged_at"].strip("Z")),
-            post_json.get("description"),
-        )
 
 
 class Section:
@@ -271,7 +256,7 @@ class Section:
     @classmethod
     def from_jsons(cls, id: int | None, name: str | None, post_jsons) -> Self:
         post_jsons.sort(key=lambda j: j["section_order"])
-        threads = [Thread.from_json(post_json) for post_json in post_jsons]
+        threads = [Thread(post_json) for post_json in post_jsons]
         return cls(id=id, title=name, threads=threads)
 
     def add_title_page(self, title_page: EpubHtml):
@@ -658,45 +643,6 @@ def validate_tag(tag: Tag, soup: BeautifulSoup) -> Tag:
         raise RuntimeError("Unknown error: tag missing")
 
 
-def thread_from_board_row(row: Tag) -> Thread:
-    thread_link = row.find("a")
-    title = thread_link.text.strip()
-    description = thread_link.get("title")
-    url = urljoin(GLOWFIC_ROOT, thread_link["href"])
-    return Thread(title, url, description)
-
-
-def sections_from_board_rows(rows: ResultSet) -> Iterable[Section]:
-    current_title = None
-    current_threads = []
-    current_description = None
-
-    for row in rows:
-        if (title := row.find("th", "continuity-header")) is not None:
-            current_title = next(title.children).text.strip()
-        elif (description := row.find("td", "written-content")) is not None:
-            current_description = description.text.strip()
-        elif (thread := row.find("td", "post-subject")) is not None:
-            current_threads.append(thread_from_board_row(thread))
-        elif row.find("td", "continuity-spacer") is not None:
-            if len(current_threads) == 0:
-                current_title = None
-                current_description = None
-                continue
-            elif current_title is not None:
-                yield Section(current_title, current_threads, current_description)
-                current_title = None
-                current_threads = []
-                current_description = None
-            else:
-                raise Exception(
-                    "Encountered nonfinal titleless section. (This should be impossible.)"
-                )
-
-    if len(current_threads) > 0:
-        yield Section(current_title, current_threads, current_description)
-
-
 @dataclass(frozen=True)
 class SectionInfo:
     id: int
@@ -713,7 +659,7 @@ async def get_book_structure(
         await limiter.acquire()
         resp = await auth_get(session, target_url)
         post_json = await resp.json()
-        return Thread.from_json(post_json)
+        return Thread(post_json)
     elif "board_sections" in url:
         await login(session, optional=True)
         section_id = int(urlparse(url).path.split("/")[-1])
