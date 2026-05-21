@@ -21,7 +21,7 @@ from lxml import etree
 from tqdm.asyncio import tqdm
 
 from .helpers import make_filename_valid_for_epub3, process_image_for_epub3
-from .auth import auth_get
+from .auth import auth_get, login
 from .constants import GLOWFIC_ROOT
 
 
@@ -715,6 +715,7 @@ async def get_book_structure(
         post_json = await resp.json()
         return Thread.from_json(post_json)
     elif "board_sections" in url:
+        await login(session, optional=True)
         section_id = int(urlparse(url).path.split("/")[-1])
         target_url = "https://glowfic.com/api/v1/subcontinuities/%d" % section_id
         await limiter.acquire()
@@ -727,6 +728,7 @@ async def get_book_structure(
                 return section
         raise Exception("Unable to find section in board")
     elif "boards" in url:
+        await login(session, optional=True)
         board_id = int(urlparse(url).path.split("/")[-1])
         return await get_continuity(session, limiter, board_id)
     else:

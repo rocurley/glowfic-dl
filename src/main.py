@@ -64,7 +64,6 @@ async def main():
         # Logging in prevents us from getting rate limited.
         # TODO: Some way to disable this and accept the rate limiting for users
         # without accounts.
-        await login(slow_session)
         async with aiohttp.ClientSession() as fast_session:
             book_structure = await get_book_structure(slow_session, limiter, args.url)
             match book_structure:

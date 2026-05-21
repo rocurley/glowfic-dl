@@ -22,13 +22,23 @@ COOKIE_NAME = "_glowfic_constellation_production"
 ###################
 
 
-def get_creds():
+def get_creds(optional=False):
     if os.path.exists("creds.json"):
         with open("creds.json", "r") as fin:
             d = json.load(fin)
         return (d["username"], d["password"])
-    print("Login required.")
-    username = input("Username: ")
+
+    if optional:
+        print(
+            "Log in? It will exempt you from rate limits and allow you to view any hidden posts in this continuity."
+        )
+        username = input("Username (blank to skip login): ")
+        if username == "":
+            print("Login skipped.")
+            return None
+    else:
+        print("Login required.")
+        username = input("Username: ")
     password = getpass()
     save_str = input("Save credentials to file? [y/N]")
     save = save_str.lower() in ["y", "yes", "true"]
@@ -40,10 +50,14 @@ def get_creds():
     return (username, password)
 
 
-async def login(session):
+async def login(session, optional=False):
     # Set cookie for non-API endpoints
     authenticity_token = await get_authenticity_token(session)
-    (username, password) = get_creds()
+    creds = get_creds(optional)
+    if creds is None:
+        assert optional
+        return
+    (username, password) = creds
     payload = {
         "username": username,
         "password": password,
