@@ -1,3 +1,4 @@
+from datetime import datetime
 import aiohttp
 import os
 import asyncio
@@ -79,12 +80,38 @@ async def get_authenticity_token(session):
     return authenticity_token.attrs["value"]
 
 
-async def auth_get(
+async def rate_limit_get(
     session: aiohttp.ClientSession, url, **kwargs
 ) -> aiohttp.ClientResponse:
     resp = await session.get(url, **kwargs)
+    if resp.status != 429:
+        return resp
+    try:
+        reset_time_unix = int(resp.headers["Ratelimit-Reset"])
+    except KeyError:
+        print("Rate limited and Ratelimit-Reset not included.")
+        print(resp.headers)
+        raise
+    reset_time = datetime.fromtimestamp(reset_time_unix)
+    sleep_duration = reset_time - datetime.now()
+    sleep_seconds = sleep_duration.total_seconds() + 0.5
+    print(
+        "Sleeping until %s (%f seconds) at server's request"
+        % (reset_time.isoformat(), sleep_seconds)
+    )
+    await asyncio.sleep(sleep_seconds)
+    resp = await session.get(url, **kwargs)
+    if resp.status == 429:
+        raise Exception("Failed to respect rate limit!")
+    return resp
+
+
+async def auth_get(
+    session: aiohttp.ClientSession, url, **kwargs
+) -> aiohttp.ClientResponse:
+    resp = await rate_limit_get(session, url, **kwargs)
     if resp.status == 403:
         await login(session)
-        resp = await session.get(url)
+        resp = await rate_limit_get(session, url)
         assert resp.status != 403
     return resp

@@ -5,6 +5,8 @@ import aiohttp
 import aiolimiter
 from ebooklib import epub
 
+from .auth import login
+
 from .helpers import make_filename_valid_for_epub3
 from .render import (
     stylesheet,
@@ -59,6 +61,10 @@ async def main():
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(limit_per_host=1)
     ) as slow_session:
+        # Logging in prevents us from getting rate limited.
+        # TODO: Some way to disable this and accept the rate limiting for users
+        # without accounts.
+        await login(slow_session)
         async with aiohttp.ClientSession() as fast_session:
             book_structure = await get_book_structure(slow_session, limiter, args.url)
             match book_structure:

@@ -760,7 +760,7 @@ async def get_continuity(
             if section not in by_section:
                 by_section[section] = []
             by_section[section].append(post_json)
-        if len(posts_json) < 25:
+        if len(posts_json["results"]) < 25:
             # 25 results per page, so we're done now.
             break
     by_section_list = list((k, v) for (k, v) in by_section.items() if k is not None)
