@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 import math
-from itertools import chain
+from itertools import chain, count
 import itertools
 from pathlib import Path
 import re
@@ -254,6 +254,19 @@ class Thread:
             )
         )
 
+    def load_compiled_sections_from_old_book(self, old_book: EpubBook):
+        old_version_ts = datetime.fromisoformat(
+            old_book.get_metadata("dcterms", "modified").strip("Z")
+        )
+        if old_version_ts < self.updated_at:
+            return
+        self.compiled_sections = []
+        for i in count():
+            section = old_book.get_item_with_id(self.section_name(i))
+            if section is None:
+                break
+            self.compiled_sections.append(section)
+
 
 class Section:
     def __init__(
@@ -279,6 +292,10 @@ class Section:
     def add_title_page(self, title_page: EpubHtml):
         self.title_page = title_page
 
+    def load_compiled_sections_from_old_book(self, old_book: EpubBook):
+        for thread in self.threads:
+            thread.load_compiled_sections_from_old_book(old_book)
+
 
 class Continuity:
     def __init__(
@@ -299,6 +316,10 @@ class Continuity:
 
     def add_title_page(self, title_page: HtmlSection):
         self.title_page = title_page
+
+    def load_compiled_sections_from_old_book(self, old_book: EpubBook):
+        for thread in self.threads:
+            thread.load_compiled_sections_from_old_book(old_book)
 
 
 ###################
@@ -465,9 +486,18 @@ async def download_chapters(
 ):
     print("Downloading chapter texts")
     await tqdm.gather(
-        *[download_chapter(slow_session, limiter, thread) for thread in threads]
+        *[
+            download_chapter(slow_session, limiter, thread)
+            for thread in threads
+            if thread.compiled_sections is None
+        ]
     )
     for thread in threads:
+        if thread.compiled_sections is not None:
+            # TODO: we need to do something about images here!
+            # Specifically, we need to make sure all cached images referenced in
+            # cached threads make it into the book.
+            continue
         assert thread.soup is not None
         posts = thread.soup.find_all("div", "post-container")
         populate_image_map(posts, image_map)
@@ -479,6 +509,8 @@ async def download_chapters(
         ]
     )
     for thread in threads:
+        if thread.compiled_sections is not None:
+            continue
         assert thread.soup is not None
         # Evil posts (presumably caused by html copy-pasting?) may have post-containers within post-containers.
         # So we only check direct descendents of flat-post-replies.

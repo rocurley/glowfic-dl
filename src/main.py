@@ -22,6 +22,26 @@ from .render import (
     get_book_structure,
 )
 
+# WIP on caching:
+# The strategy of loading our cached data from the ebook is awkward. It would
+# be a lot nicer if we instead cached the html so we could run the pipeline
+# normally. Some challenges:
+# * Image names are lost. Fixed by switching image names to their url's hash.
+# * Thread IDs are lost. Fixed by switching book section names to be based on
+#   the thread ID.
+# * Reply permalink URLs are lost (we need them for resolving internal links).
+#   CURRENTLY UNSOLVED
+# * Link targets are lost. Unclear if this is important. We can't re-localize
+#   links, but do we need to?
+# * Images are loaded into the image map from the HTML soup, so cached pages
+#   can't load images. CURRENTLY UNSOLVED
+# * Different users (for the server use case) can see different versions of a
+#   continuity (based on their permissions). Because continuity data is not
+#   cached, we won't leak threads, but we cache data will be lost when a
+#   lower-access user requests a continuity. CURRENTLY UNSOLVED (but will the
+#   server even support multiple users?)
+#
+
 # TODO:
 # * Better kobo handling
 # * Rewrite internal links
@@ -86,6 +106,7 @@ async def main():
             image_map = ImageMap()
             if old_book:
                 image_map.populate_from_book(old_book)
+                book_structure.load_compiled_sections_from_old_book(old_book)
             authors = set()
 
             await download_chapters(
