@@ -205,7 +205,9 @@ class RenderedPost:
 class HtmlSection:
     def __init__(self):
         self.html = BeautifulSoup(output_template, "html.parser")
-        self.body = self.html.find("body")
+        body = self.html.find("body")
+        assert body is not None
+        self.body = body
         self.size = 0
         self.link_targets = []
 
@@ -217,16 +219,19 @@ class HtmlSection:
 
 class Thread:
     def __init__(self, post_json):
-        self.title = post_json["subject"]
-        self.url = "https://glowfic.com//posts/%d" % post_json["id"]
-        self.updated_at = (datetime.fromisoformat(post_json["tagged_at"].strip("Z")),)
-        self.description = post_json.get("description")
+        self.id: int = post_json["id"]
+        self.title: str = post_json["subject"]
+        self.url: str = "https://glowfic.com//posts/%d" % post_json["id"]
+        self.updated_at: datetime = datetime.fromisoformat(
+            post_json["tagged_at"].strip("Z")
+        )
+        self.description: str = post_json.get("description")
 
-        self.soup = None
-        self.rendered_sections = None
-        self.compiled_sections = None
+        self.soup: BeautifulSoup | None = None
+        self.rendered_sections: list[HtmlSection] | None = None
+        self.compiled_sections: list[EpubHtml] | None = None
 
-        self.threads = [self]
+        self.threads: list[Thread] = [self]
 
     def add_soup(self, soup: BeautifulSoup):
         self.soup = soup
@@ -451,6 +456,7 @@ async def download_chapters(
         *[download_chapter(slow_session, limiter, thread) for thread in threads]
     )
     for thread in threads:
+        assert thread.soup is not None
         posts = thread.soup.find_all("div", "post-container")
         populate_image_map(posts, image_map)
     print("Downloading images")
@@ -461,6 +467,7 @@ async def download_chapters(
         ]
     )
     for thread in threads:
+        assert thread.soup is not None
         # Evil posts (presumably caused by html copy-pasting?) may have post-containers within post-containers.
         # So we only check direct descendents of flat-post-replies.
         first_post = thread.soup.find("div", "post-post")
@@ -539,6 +546,7 @@ def compile_sections(threads: list[Thread], chapter_digits: int):
                 file_name=file_name,
                 media_type="application/xhtml+xml",
             )
+            compiled_section.add_meta(name="glowfic-post-id", content=str(thread.id))
             compiled_section.content = etree.tostring(
                 etree.fromstring(
                     str(section.html), etree.XMLParser(remove_blank_text=True)
