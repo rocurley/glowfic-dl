@@ -242,6 +242,18 @@ class Thread:
     def add_compiled_sections(self, compiled_sections: list[EpubHtml]):
         self.compiled_sections = compiled_sections
 
+    def section_name(self, section_ix: int) -> str:
+        assert self.rendered_sections is not None
+        section_digits = len(str(len(self.rendered_sections) - 1))
+        return make_filename_valid_for_epub3(
+            "%i-%.*i.xhtml"
+            % (
+                self.id,
+                section_digits,
+                section_ix,
+            )
+        )
+
 
 class Section:
     def __init__(
@@ -479,33 +491,21 @@ async def download_chapters(
         )
 
 
-def map_permalinks_to_filenames(
-    threads: list[Thread], chapter_digits: int
-) -> dict[str, str]:
+def map_permalinks_to_filenames(threads: list[Thread]) -> dict[str, str]:
     anchor_sections = {}
-    for i, thread in enumerate(threads):
-        section_digits = len(str(len(thread.rendered_sections) - 1))
+    for thread in threads:
+        assert thread.rendered_sections is not None
         for (j, section) in enumerate(thread.rendered_sections):
-            file_name = make_filename_valid_for_epub3(
-                "%.*i-%.*i (%s).xhtml"
-                % (
-                    chapter_digits,
-                    i + 1,
-                    section_digits,
-                    j,
-                    thread.title,
-                )
-            )
+            file_name = thread.section_name(j)
             for permalink in section.link_targets:
                 anchor_sections[permalink] = file_name
     return anchor_sections
 
 
-def replace_or_tag_external_links_from_sections(
-    threads: list[Thread], chapter_digits: int
-):
-    anchor_sections = map_permalinks_to_filenames(threads, chapter_digits)
+def replace_or_tag_external_links_from_sections(threads: list[Thread]):
+    anchor_sections = map_permalinks_to_filenames(threads)
     for thread in threads:
+        assert thread.rendered_sections is not None
         for section in thread.rendered_sections:
             for a in section.html.find_all("a"):
                 if "href" not in a.attrs:
@@ -526,21 +526,12 @@ def replace_or_tag_external_links_from_sections(
                             ).geturl()
 
 
-def compile_sections(threads: list[Thread], chapter_digits: int):
-    for i, thread in enumerate(threads):
-        section_digits = len(str(len(thread.rendered_sections) - 1))
+def compile_sections(threads: list[Thread]):
+    for thread in threads:
+        assert thread.rendered_sections is not None
         compiled_sections = []
         for j, section in enumerate(thread.rendered_sections):
-            file_name = "Text/" + make_filename_valid_for_epub3(
-                "%.*i-%.*i (%s).xhtml"
-                % (
-                    chapter_digits,
-                    i + 1,
-                    section_digits,
-                    j,
-                    thread.title,
-                )
-            )
+            file_name = "Text/" + thread.section_name(j)
             compiled_section = EpubHtml(
                 title=thread.title,
                 file_name=file_name,
@@ -561,10 +552,9 @@ def compile_sections(threads: list[Thread], chapter_digits: int):
         thread.add_compiled_sections(compiled_sections)
 
 
-def compile_chapters(threads: list[Thread]) -> Iterable[list[EpubHtml]]:
-    chapter_digits = len(str(len(threads)))
-    replace_or_tag_external_links_from_sections(threads, chapter_digits)
-    compile_sections(threads, chapter_digits)
+def compile_chapters(threads: list[Thread]):
+    replace_or_tag_external_links_from_sections(threads)
+    compile_sections(threads)
 
 
 def generate_section_title_pages(sections: list[Section]):
