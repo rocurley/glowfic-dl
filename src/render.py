@@ -244,8 +244,9 @@ class Thread:
         self.compiled_sections = compiled_sections
 
     def section_name(self, section_ix: int) -> str:
-        assert self.rendered_sections is not None
-        section_digits = len(str(len(self.rendered_sections) - 1))
+        sections = self.compiled_sections or self.rendered_sections
+        assert sections is not None
+        section_digits = len(str(len(sections) - 1))
         return make_filename_valid_for_epub3(
             "%i-%.*i.xhtml"
             % (
@@ -256,17 +257,22 @@ class Thread:
         )
 
     def load_compiled_sections_from_old_book(self, old_book: EpubBook):
-        old_version_ts = datetime.fromisoformat(
-            old_book.get_metadata("dcterms", "modified").strip("Z")
-        )
+        old_version_ts = last_modified(old_book)
         if old_version_ts < self.updated_at:
             return
         self.compiled_sections = []
-        for i in count():
-            section = old_book.get_item_with_id(self.section_name(i))
-            if section is None:
-                break
-            self.compiled_sections.append(section)
+        for item in old_book.get_items():
+            item.id = None
+            if item.get_name().startswith(f"Text/{self.id}"):
+                self.compiled_sections.append(item)
+        self.compiled_sections.sort(key=EpubHtml.get_name)
+
+
+def last_modified(book: EpubBook) -> datetime:
+    for (content, attrs) in book.get_metadata("OPF", "meta"):
+        if attrs.get("property") == "dcterms:modified":
+            return datetime.fromisoformat(content.strip("Z"))
+    raise Exception("Couldn't find dcterms:modified")
 
 
 class Section:
@@ -532,11 +538,14 @@ def map_permalinks_to_filenames(threads: list[Thread]) -> dict[str, str]:
                 file_name = thread.section_name(j)
                 soup = BeautifulSoup(compiled_section.content, "html.parser")
                 for anchor in soup.find_all("a"):
-                    match = COMPILED_REPLY_RE.match(anchor)
+                    if "id" not in anchor.attrs:
+                        continue
+                    match = COMPILED_REPLY_RE.match(anchor["id"])
                     if match is None:
                         continue
                     reply_id = int(match.group(1))
-                    anchor_sections["replies/%d" % reply_id] = file_name
+                    permalink = f"/replies/{reply_id}#reply-{reply_id}"
+                    anchor_sections[permalink] = file_name
         else:
             assert thread.rendered_sections is not None
             for (j, compiled_section) in enumerate(thread.rendered_sections):
