@@ -36,6 +36,7 @@ RELATIVE_REPLY_RE = re.compile(r"/(replies|posts)/\d*")
 ABSOLUTE_REPLY_RE = re.compile(
     r"https?://(www.)?glowfic.com(?P<relative>/(replies|posts)/\d*)"
 )
+COMPILED_REPLY_RE = re.compile(r"reply-(\d*)")
 
 
 ###################
@@ -526,11 +527,22 @@ async def download_chapters(
 def map_permalinks_to_filenames(threads: list[Thread]) -> dict[str, str]:
     anchor_sections = {}
     for thread in threads:
-        assert thread.rendered_sections is not None
-        for (j, section) in enumerate(thread.rendered_sections):
-            file_name = thread.section_name(j)
-            for permalink in section.link_targets:
-                anchor_sections[permalink] = file_name
+        if thread.compiled_sections is not None:
+            for (j, compiled_section) in enumerate(thread.compiled_sections):
+                file_name = thread.section_name(j)
+                soup = BeautifulSoup(compiled_section.content, "html.parser")
+                for anchor in soup.find_all("a"):
+                    match = COMPILED_REPLY_RE.match(anchor)
+                    if match is None:
+                        continue
+                    reply_id = int(match.group(1))
+                    anchor_sections["replies/%d" % reply_id] = file_name
+        else:
+            assert thread.rendered_sections is not None
+            for (j, compiled_section) in enumerate(thread.rendered_sections):
+                file_name = thread.section_name(j)
+                for permalink in compiled_section.link_targets:
+                    anchor_sections[permalink] = file_name
     return anchor_sections
 
 

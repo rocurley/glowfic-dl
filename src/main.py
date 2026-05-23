@@ -42,6 +42,12 @@ from .render import (
 #   server even support multiple users?)
 #
 
+# How does link rewriting work?
+# Internal links can be relative or absolute, so we need to account for that.
+# They can also be to posts or replies. These need to be handled differently.
+# Posts just need to go to the correct title page. Replies need to go to the section containing the relevant reply. Hilariously, they're written like this:
+# https://glowfic.com/replies/2520772#reply-2520772
+
 # TODO:
 # * Better kobo handling
 # * Rewrite internal links
