@@ -376,7 +376,6 @@ async def download_image(
     session: aiohttp.ClientSession, url: str, mapped_image: MappedImage
 ):
     if isinstance(mapped_image.data, Succeeded):
-        print("Cache hit for %s" % url)
         return
     try:
         headers = {}
