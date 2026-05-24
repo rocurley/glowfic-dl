@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "glowfic_dl"
+version = "0.1.0"
+dependencies = [
+  "aiohttp",
+  "aiolimiter",
+  "bs4",
+  "ebooklib",
+  "lxml",
+  "pillow",
+  "tqdm",
+  "tzdata",
+  "typing-extensions",
+]

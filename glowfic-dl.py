@@ -3,7 +3,7 @@
 import asyncio
 import platform
 
-from src.main import main
+from glowfic_dl.main import main
 
 # Lightweight wrapper around main.py
 if platform.system() == "Windows":
