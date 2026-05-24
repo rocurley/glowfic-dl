@@ -37,7 +37,6 @@ ABSOLUTE_REPLY_RE = re.compile(
     r"https?://(www.)?glowfic.com(?P<relative>/(replies|posts)/\d*)"
 )
 COMPILED_REPLY_RE = re.compile(r"reply-(\d*)")
-IMAGE_NAME_RE = re.compile(r"Images\/(?P<type>icon|image)_(?P<hash>(\d|\w)*)\.(?P<ext>\w*)")
 
 
 ###################
@@ -235,7 +234,7 @@ class Thread:
     def __init__(self, post_json):
         self.id: int = post_json["id"]
         self.title: str = post_json["subject"]
-        self.url: str = "https://glowfic.com//posts/%d" % post_json["id"]
+        self.url: str = "https://glowfic.com/posts/%d" % post_json["id"]
         self.updated_at: datetime = datetime.fromisoformat(
             post_json["tagged_at"].strip("Z")
         )
@@ -385,7 +384,6 @@ async def download_image(
             file = await resp.read()
             if len(file) == 0:
                 print("Empty download for %s" % url)
-                print(resp)
                 file = None
 
     except (aiohttp.ClientError, asyncio.TimeoutError):

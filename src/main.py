@@ -21,12 +21,6 @@ from .render import (
     get_images_as_epub_items,
     get_book_structure,
 )
-# How does link rewriting work?
-# Internal links can be relative or absolute, so we need to account for that.
-# They can also be to posts or replies. These need to be handled differently.
-# Posts just need to go to the correct title page. Replies need to go to the section containing the relevant reply. Hilariously, they're written like this:
-# https://glowfic.com/replies/2520772#reply-2520772
-
 # TODO:
 # * Better kobo handling
 # * Rewrite internal links
@@ -66,9 +60,6 @@ async def main():
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(limit_per_host=1)
     ) as slow_session:
-        # Logging in prevents us from getting rate limited.
-        # TODO: Some way to disable this and accept the rate limiting for users
-        # without accounts.
         async with aiohttp.ClientSession() as fast_session:
             book_structure = await get_book_structure(slow_session, limiter, args.url)
             match book_structure:
