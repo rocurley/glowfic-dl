@@ -558,29 +558,35 @@ def map_permalinks_to_filenames(threads: list[Thread]) -> dict[str, str]:
 def replace_or_tag_external_links_from_sections(threads: list[Thread]):
     anchor_sections = map_permalinks_to_filenames(threads)
     for thread in threads:
-        assert thread.rendered_sections is not None
-        for section in thread.rendered_sections:
-            for a in section.html.find_all("a"):
-                if "href" not in a.attrs:
-                    continue
-                raw_url = a["href"]
-                url = urlparse(raw_url)
-                if RELATIVE_REPLY_RE.match(raw_url) and raw_url in anchor_sections:
-                    a["href"] = url._replace(path=anchor_sections[raw_url]).geturl()
-                else:
-                    abs = ABSOLUTE_REPLY_RE.match(raw_url)
-                    if abs is not None and abs.group("relative") in anchor_sections:
-                        a["href"] = anchor_sections[abs.group("relative")]
-                    else:  # External link
-                        a["class"] = a.get("class", []) + ["extlink"]
-                        if url.netloc == "":
-                            a["href"] = url._replace(
-                                scheme="https", netloc="glowfic.com"
-                            ).geturl()
+        if thread.compiled_sections is not None:
+            # TODO: do this
+            pass
+        else:
+            assert thread.rendered_sections is not None
+            for section in thread.rendered_sections:
+                for a in section.html.find_all("a"):
+                    if "href" not in a.attrs:
+                        continue
+                    raw_url = a["href"]
+                    url = urlparse(raw_url)
+                    if RELATIVE_REPLY_RE.match(raw_url) and raw_url in anchor_sections:
+                        a["href"] = url._replace(path=anchor_sections[raw_url]).geturl()
+                    else:
+                        abs = ABSOLUTE_REPLY_RE.match(raw_url)
+                        if abs is not None and abs.group("relative") in anchor_sections:
+                            a["href"] = anchor_sections[abs.group("relative")]
+                        else:  # External link
+                            a["class"] = a.get("class", []) + ["extlink"]
+                            if url.netloc == "":
+                                a["href"] = url._replace(
+                                    scheme="https", netloc="glowfic.com"
+                                ).geturl()
 
 
 def compile_sections(threads: list[Thread]):
     for thread in threads:
+        if thread.compiled_sections is not None:
+            continue
         assert thread.rendered_sections is not None
         compiled_sections = []
         for j, section in enumerate(thread.rendered_sections):
