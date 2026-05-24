@@ -173,7 +173,7 @@ class ImageMap:
             image = MappedImage(ty, hash)
         else:
             assert image.type == ty
-            del self.cached_images["hash"]
+            del self.cached_images[hash]
         self.map[url] = image
 
     def add_cached_image(self, filename: Path, file: bytes):
@@ -274,7 +274,7 @@ class Thread:
         old_version_ts = last_modified(old_book)
         if old_version_ts < self.updated_at:
             return
-        self.compiled_sections = []
+        compiled_sections = []
         for item in old_book.get_items():
             item.id = None
             if item.get_name().startswith(f"Text/{self.id}"):
@@ -284,8 +284,12 @@ class Thread:
                 item.add_link(
                     href="../style.css", rel="stylesheet", type="text/css"
                 )
-                self.compiled_sections.append(item)
-        self.compiled_sections.sort(key=EpubHtml.get_name)
+                compiled_sections.append(item)
+        # Can happen if the re-run with more permissions
+        if len(compiled_sections) == 0:
+            return
+        compiled_sections.sort(key=EpubHtml.get_name)
+        self.compiled_sections = compiled_sections
 
 
 def last_modified(book: EpubBook) -> datetime:
@@ -515,9 +519,6 @@ async def download_chapters(
     )
     for thread in threads:
         if thread.compiled_sections is not None:
-            # TODO: we need to do something about images here!
-            # Specifically, we need to make sure all cached images referenced in
-            # cached threads make it into the book.
             for section in thread.compiled_sections:
                 soup = BeautifulSoup(section.content, "html.parser")
                 images = soup.find_all("img")
@@ -576,9 +577,13 @@ def map_permalinks_to_filenames(threads: list[Thread]) -> dict[str, str]:
 
 def replace_or_tag_external_links_from_sections(threads: list[Thread]):
     anchor_sections = map_permalinks_to_filenames(threads)
+
     for thread in threads:
         if thread.compiled_sections is not None:
-            # TODO: do this
+            # TODO: there are some unhandled edge cases here. If a link in a
+            # cached thread goes from being external to internal or vice versa,
+            # we'll have a problem. But it's hard to imagine why that would
+            # happen.
             pass
         else:
             assert thread.rendered_sections is not None

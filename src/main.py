@@ -21,25 +21,6 @@ from .render import (
     get_images_as_epub_items,
     get_book_structure,
 )
-
-# WIP on caching:
-# The strategy of loading our cached data from the ebook is awkward. It would
-# be a lot nicer if we instead cached the html so we could run the pipeline
-# normally. Some challenges:
-# * Image names are lost. Fixed by switching image names to their url's hash.
-# * Thread IDs are lost. Fixed by switching book section names to be based on
-#   the thread ID.
-# * Link targets are lost. Unclear if this is important. We can't re-localize
-#   links, but do we need to?
-# * Images are loaded into the image map from the HTML soup, so cached pages
-#   can't load images. CURRENTLY UNSOLVED
-# * Different users (for the server use case) can see different versions of a
-#   continuity (based on their permissions). Because continuity data is not
-#   cached, we won't leak threads, but we cache data will be lost when a
-#   lower-access user requests a continuity. CURRENTLY UNSOLVED (but will the
-#   server even support multiple users?)
-#
-
 # How does link rewriting work?
 # Internal links can be relative or absolute, so we need to account for that.
 # They can also be to posts or replies. These need to be handled differently.
