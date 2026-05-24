@@ -1,5 +1,7 @@
 import argparse
 import os
+from typing import Literal
+import typing
 
 import aiohttp
 import aiolimiter
@@ -55,9 +57,9 @@ def get_args() -> argparse.Namespace:
 
 async def main():
     args = get_args()
-    await download_ebook(args.url, args.split)
+    await download_ebook(args.url, args.split, "title")
 
-async def download_ebook(url: str, split: str):
+async def download_ebook(url: str, split: str, filename_mode: str):
     limiter = aiolimiter.AsyncLimiter(1, 1)
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(limit_per_host=1)
@@ -75,7 +77,19 @@ async def download_ebook(url: str, split: str):
                         % (len(book_structure.sections), len(book_structure.threads))
                     )
 
-            out_path = make_filename_valid_for_epub3("%s.epub" % book_structure.title)
+            match filename_mode:
+                case "title":
+                    out_path = make_filename_valid_for_epub3("%s.epub" % book_structure.title)
+                case "url":
+                    match book_structure:
+                        case Thread():
+                            out_path = f"replies_{book_structure.id}.epub"
+                        case Section():
+                            out_path = f"board_sections_{book_structure.id}.epub"
+                        case Continuity():
+                            out_path = f"boards_{book_structure.id}.epub"
+                case _:
+                    raise Exception(f"Unexpected filename mode: should be url or title but got {filename_mode}")
             try:
                 old_book = epub.read_epub(out_path)
             except:

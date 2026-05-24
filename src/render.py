@@ -330,10 +330,12 @@ class Section:
 class Continuity:
     def __init__(
         self,
+        id: int,
         title: str,
         sections: list[Section],
         sectionless_threads: Optional[Section] = None,
     ):
+        self.id = id
         self.title = title
         self.sections = sections
         self.sectionless_threads = sectionless_threads
@@ -795,9 +797,9 @@ async def get_continuity(
     sections = [Section.from_jsons(k.id, k.name, v) for (k, v) in by_section_list]
     if None in by_section:
         null_section = Section.from_jsons(None, None, by_section[None])
-        return Continuity(title, sections, null_section)
+        return Continuity(board_id, title, sections, null_section)
     else:
-        return Continuity(title, sections)
+        return Continuity(board_id, title, sections)
 
 
 def get_images_as_epub_items(image_map: ImageMap) -> list[EpubItem]:
