@@ -264,6 +264,12 @@ class Thread:
         for item in old_book.get_items():
             item.id = None
             if item.get_name().startswith(f"Text/{self.id}"):
+                # Unclear why these are lost
+                item.title = self.title
+                item.add_meta(name="glowfic-post-id", content=str(self.id))
+                item.add_link(
+                    href="../style.css", rel="stylesheet", type="text/css"
+                )
                 self.compiled_sections.append(item)
         self.compiled_sections.sort(key=EpubHtml.get_name)
 
