@@ -29,8 +29,6 @@ from .render import (
 # * Image names are lost. Fixed by switching image names to their url's hash.
 # * Thread IDs are lost. Fixed by switching book section names to be based on
 #   the thread ID.
-# * Reply permalink URLs are lost (we need them for resolving internal links).
-#   CURRENTLY UNSOLVED
 # * Link targets are lost. Unclear if this is important. We can't re-localize
 #   links, but do we need to?
 # * Images are loaded into the image map from the HTML soup, so cached pages

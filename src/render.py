@@ -37,6 +37,7 @@ ABSOLUTE_REPLY_RE = re.compile(
     r"https?://(www.)?glowfic.com(?P<relative>/(replies|posts)/\d*)"
 )
 COMPILED_REPLY_RE = re.compile(r"reply-(\d*)")
+IMAGE_NAME_RE = re.compile(r"Images\/(?P<type>icon|image)_(?P<hash>(\d|\w)*)\.(?P<ext>\w*)")
 
 
 ###################
@@ -101,6 +102,10 @@ class Succeeded:
 
 ImageData = Union[Uninitialized, Failed, Succeeded]
 
+def parse_image_filename(filename: Path) -> tuple[str, str, str]:
+    [ty, hash] = filename.stem.split("_")
+    ext = filename.suffix.strip(".")
+    return (ty, hash, ext)
 
 class MappedImage:
     def __init__(self, type: str, hash: str):
@@ -136,8 +141,7 @@ class MappedImage:
 
     @classmethod
     def from_file(cls, filename: Path, file: bytes) -> Self:
-        [ty, hash] = filename.stem.split("_")
-        expected_ext = filename.suffix.strip(".")
+        (ty, hash, expected_ext) = parse_image_filename(filename)
         out = cls(ty, hash)
         match process_image_for_epub3(file):
             case None:
@@ -152,6 +156,7 @@ class ImageMap:
     def __init__(self):
         self.map: dict[str, MappedImage] = {}  # url -> image
         self.cached_images: dict[str, MappedImage] = {}  # hash -> image
+        self.cached_posts_images: set[str] = set() # by hash
 
     def add_icon(self, url: str):
         self._add_image_untyped(url, "icon")
@@ -168,11 +173,19 @@ class ImageMap:
             image = MappedImage(ty, hash)
         else:
             assert image.type == ty
+            del self.cached_images["hash"]
         self.map[url] = image
 
     def add_cached_image(self, filename: Path, file: bytes):
         image = MappedImage.from_file(filename, file)
         self.cached_images[image.hash] = image
+
+    # tracks which cached images have been used from cached text
+    def add_cached_image_usage(self, path: str):
+        (_, hash, _) = parse_image_filename(Path(path))
+        self.cached_posts_images.add(hash)
+
+
 
     def get_icon_name(self, url: str) -> Optional[str]:
         if url not in self.map:
@@ -505,10 +518,15 @@ async def download_chapters(
             # TODO: we need to do something about images here!
             # Specifically, we need to make sure all cached images referenced in
             # cached threads make it into the book.
-            continue
-        assert thread.soup is not None
-        posts = thread.soup.find_all("div", "post-container")
-        populate_image_map(posts, image_map)
+            for section in thread.compiled_sections:
+                soup = BeautifulSoup(section.content, "html.parser")
+                images = soup.find_all("img")
+                for image in images:
+                    image_map.add_cached_image_usage(image["src"])
+        else:
+            assert thread.soup is not None
+            posts = thread.soup.find_all("div", "post-container")
+            populate_image_map(posts, image_map)
     print("Downloading images")
     await tqdm.gather(
         *[
@@ -784,13 +802,21 @@ def get_images_as_epub_items(image_map: ImageMap) -> list[EpubItem]:
     for url, mapped_image in image_map.map.items():
         if not isinstance(mapped_image.data, Succeeded):
             continue
-        match mapped_image.type:
-            case "icon":
-                filename = image_map.get_icon_name(url)
-            case "image":
-                filename = image_map.get_image_name(url)
-            case _:
-                raise ValueError("Mapped image name is neither 'icon' nor 'image'.")
+        filename = mapped_image.get_filename()
+        assert filename is not None
+        items.append(
+            EpubItem(
+                uid=filename,
+                file_name=filename,
+                media_type=mapped_image.data.media_type,
+                content=mapped_image.data.file,
+            )
+        )
+    for hash, mapped_image in image_map.cached_images.items():
+        if hash not in image_map.cached_posts_images:
+            continue
+        assert isinstance(mapped_image.data, Succeeded)
+        filename = mapped_image.get_filename()
         assert filename is not None
         items.append(
             EpubItem(
