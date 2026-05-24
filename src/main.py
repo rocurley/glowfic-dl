@@ -55,13 +55,15 @@ def get_args() -> argparse.Namespace:
 
 async def main():
     args = get_args()
+    await download_ebook(args.url, args.split)
 
+async def download_ebook(url: str, split: str):
     limiter = aiolimiter.AsyncLimiter(1, 1)
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(limit_per_host=1)
     ) as slow_session:
         async with aiohttp.ClientSession() as fast_session:
-            book_structure = await get_book_structure(slow_session, limiter, args.url)
+            book_structure = await get_book_structure(slow_session, limiter, url)
             match book_structure:
                 case Thread():
                     print("Found 1 thread")
@@ -90,7 +92,7 @@ async def main():
                 fast_session,
                 book_structure.threads,
                 image_map,
-                args.split,
+                split,
             )
             compile_chapters(book_structure.threads)
 
