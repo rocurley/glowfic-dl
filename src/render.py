@@ -227,6 +227,7 @@ class Thread:
             post_json["tagged_at"].strip("Z")
         )
         self.description: str = post_json.get("description")
+        self.authors = [author["username"] for author in post_json["authors"]]
 
         self.soup: BeautifulSoup | None = None
         self.rendered_sections: list[HtmlSection] | None = None
@@ -433,25 +434,20 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 def render_posts(
     posts: Iterable[Tag],
     image_map: ImageMap,
-    authors: set,
+    authors: list[str],
     title: str,
     split: str,
 ) -> Iterable[HtmlSection]:
     rendered_posts = [render_post(post, image_map) for post in posts]
 
     # Thread title page
-    thread_authors = set()
-    for post in rendered_posts:
-        thread_authors.add(post.author)
-    authors.update(thread_authors)
-
     title_page = HtmlSection()
     title_page.body.extend(
         BeautifulSoup('<h2 class="title">%s</h2>' % title, "html.parser")
     )
     title_page.body.extend(
         BeautifulSoup(
-            '<h3 class="authors">%s</h2>' % ", ".join(sorted(thread_authors)),
+            '<h3 class="authors">%s</h2>' % ", ".join(sorted(authors)),
             "html.parser",
         )
     )
@@ -494,7 +490,6 @@ async def download_chapters(
     fast_session: aiohttp.ClientSession,
     threads: list[Thread],
     image_map: ImageMap,
-    authors: set,
     split: str,
 ):
     print("Downloading chapter texts")
@@ -532,7 +527,7 @@ async def download_chapters(
         replies = replies_container.find_all("div", "post-container", recursive=False)
         posts = chain([first_post], replies)
         thread.add_rendered_sections(
-            list(render_posts(posts, image_map, authors, thread.title, split))
+            list(render_posts(posts, image_map, thread.authors, thread.title, split))
         )
 
 

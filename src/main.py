@@ -113,7 +113,6 @@ async def main():
             if old_book:
                 image_map.populate_from_book(old_book)
                 book_structure.load_compiled_sections_from_old_book(old_book)
-            authors = set()
 
             await download_chapters(
                 slow_session,
@@ -121,7 +120,6 @@ async def main():
                 fast_session,
                 book_structure.threads,
                 image_map,
-                authors,
                 args.split,
             )
             compile_chapters(book_structure.threads)
@@ -146,6 +144,10 @@ async def main():
             for image in get_images_as_epub_items(image_map):
                 book.add_item(image)
 
+            authors = set()
+            for thread in book_structure.threads:
+                for author in thread.authors:
+                    authors.add(author)
             for author in sorted(authors):
                 book.add_author(author)
 
