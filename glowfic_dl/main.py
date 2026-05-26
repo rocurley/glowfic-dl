@@ -59,7 +59,7 @@ async def main():
     args = get_args()
     await download_ebook(args.url, args.split, "title")
 
-async def download_ebook(url: str, split: str, filename_mode: str):
+async def download_ebook(url: str, split: str, filename_mode: str) -> str:
     limiter = aiolimiter.AsyncLimiter(1, 1)
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(limit_per_host=1)
@@ -143,3 +143,4 @@ async def download_ebook(url: str, split: str, filename_mode: str):
 
             print("Saving book to %s" % out_path)
             epub.write_epub(out_path, book, {})
+            return out_path
