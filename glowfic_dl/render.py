@@ -1,28 +1,26 @@
 import asyncio
 from datetime import datetime
-import math
-from itertools import chain, count
+from itertools import chain
 import itertools
 from pathlib import Path
 import re
 from typing import Any, Iterable, Optional, Union
 import ebooklib
 from typing_extensions import Self
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 from hashlib import sha256
 
 import aiohttp
 import aiolimiter
 from dataclasses import dataclass
-from bs4 import BeautifulSoup, PageElement
-from bs4.element import Tag, ResultSet
+from bs4 import BeautifulSoup
+from bs4.element import AttributeValueList, Tag, ResultSet
 from ebooklib.epub import EpubHtml, EpubItem, EpubBook
 from lxml import etree
 from tqdm.asyncio import tqdm
 
-from .helpers import make_filename_valid_for_epub3, process_image_for_epub3
+from .helpers import get_attr, make_filename_valid_for_epub3, process_image_for_epub3
 from .auth import auth_get, login
-from .constants import GLOWFIC_ROOT
 
 
 ################
@@ -101,10 +99,12 @@ class Succeeded:
 
 ImageData = Union[Uninitialized, Failed, Succeeded]
 
+
 def parse_image_filename(filename: Path) -> tuple[str, str, str]:
     [ty, hash] = filename.stem.split("_")
     ext = filename.suffix.strip(".")
     return (ty, hash, ext)
+
 
 class MappedImage:
     def __init__(self, type: str, hash: str):
@@ -155,7 +155,7 @@ class ImageMap:
     def __init__(self):
         self.map: dict[str, MappedImage] = {}  # url -> image
         self.cached_images: dict[str, MappedImage] = {}  # hash -> image
-        self.cached_posts_images: set[str] = set() # by hash
+        self.cached_posts_images: set[str] = set()  # by hash
 
     def add_icon(self, url: str):
         self._add_image_untyped(url, "icon")
@@ -184,8 +184,6 @@ class ImageMap:
         (_, hash, _) = parse_image_filename(Path(path))
         self.cached_posts_images.add(hash)
 
-
-
     def get_icon_name(self, url: str) -> Optional[str]:
         if url not in self.map:
             raise ValueError(
@@ -206,11 +204,8 @@ class ImageMap:
 
 
 class RenderedPost:
-    def __init__(
-        self, html: BeautifulSoup, author: str, permalink: str, permalink_fragment: str
-    ):
+    def __init__(self, html: BeautifulSoup, permalink: str, permalink_fragment: str):
         self.html = html
-        self.author = author
         self.permalink = permalink
         self.permalink_fragment = permalink_fragment
 
@@ -280,9 +275,7 @@ class Thread:
                 # Unclear why these are lost
                 item.title = self.title
                 item.add_meta(name="glowfic-post-id", content=str(self.id))
-                item.add_link(
-                    href="../style.css", rel="stylesheet", type="text/css"
-                )
+                item.add_link(href="../style.css", rel="stylesheet", type="text/css")
                 compiled_sections.append(item)
         # Can happen if the re-run with more permissions
         if len(compiled_sections) == 0:
@@ -394,26 +387,32 @@ async def download_image(
 
 
 def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
-    try:
-        character = post.find("div", "post-character").text.strip()
-    except AttributeError:
-        character = None
-    try:
-        screen_name = post.find("div", "post-screenname").text.strip()
-    except AttributeError:
-        screen_name = None
-    try:
-        author = post.find("div", "post-author").text.strip()
-    except AttributeError:
-        author = None
-    content = post.find("div", "post-content")
+    match post.find("div", class_="post-character"):
+        case None:
+            character = None
+        case tag:
+            character = tag.text.strip()
+    match post.find("div", class_="post-screenname"):
+        case None:
+            screen_name = None
+        case tag:
+            screen_name = tag.text.strip()
+    match post.find("div", class_="post-author"):
+        case None:
+            author = None
+        case tag:
+            author = tag.text.strip()
+    content = post.find("div", class_="post-content")
+    assert content is not None
     header = BeautifulSoup("<p><strong></strong></p>", "html.parser")
-    header.find("strong").string = " / ".join(
+    character_name = header.find("strong")
+    assert character_name is not None
+    character_name.string = " / ".join(
         [x for x in [character, screen_name, author] if x is not None]
     )
 
     for inline_img in content.find_all("img"):
-        mapped_image = image_map.get_image_name(inline_img["src"])
+        mapped_image = image_map.get_image_name(get_attr(inline_img, "src"))
         if mapped_image is not None:
             inline_img["src"] = "../%s" % mapped_image
         else:
@@ -421,27 +420,32 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 
     post_html = BeautifulSoup('<div class="post"></div>', "html.parser")
     post_div = post_html.find("div")
-    permalink = post.find("img", title="Permalink", alt="Permalink").parent["href"]
+    assert post_div is not None
+    permalink_img = post.find("img", title="Permalink", alt="Permalink")
+    assert permalink_img is not None
+    assert permalink_img.parent is not None
+    permalink = get_attr(permalink_img.parent, "href")
     permalink_fragment = urlparse(permalink).fragment
     if permalink_fragment != "":
         reply_anchor = post_html.new_tag("a", id=permalink_fragment)
         post_div.extend([reply_anchor])  # for linking to this reply
 
-    icon = post.find("img", "icon")
+    icon = post.find("img", class_="icon")
     if icon:
-        mapped_icon = image_map.get_icon_name(icon["src"])
+        mapped_icon = image_map.get_icon_name(get_attr(icon, "src"))
         if mapped_icon:
-            local_image = BeautifulSoup('<img class="icon"></img>', "html.parser")
-            local_image.find("img")["src"] = "../%s" % mapped_icon
-            local_image.find("img")["alt"] = icon["alt"]
-            post_div.extend([header, local_image] + content.contents)
+            local_image_html = BeautifulSoup('<img class="icon"></img>', "html.parser")
+            local_image = local_image_html.find("img")
+            assert local_image is not None
+            local_image["src"] = "../%s" % mapped_icon
+            local_image["alt"] = icon["alt"]
+            post_div.extend([header, local_image_html] + content.contents)
         else:
             post_div.extend([header] + content.contents)
     else:
         post_div.extend([header] + content.contents)
     return RenderedPost(
         html=post_html,
-        author=author,
         permalink=permalink,
         permalink_fragment=permalink_fragment,
     )
@@ -522,10 +526,10 @@ async def download_chapters(
                 soup = BeautifulSoup(section.content, "html.parser")
                 images = soup.find_all("img")
                 for image in images:
-                    image_map.add_cached_image_usage(image["src"])
+                    image_map.add_cached_image_usage(get_attr(image, "src"))
         else:
             assert thread.soup is not None
-            posts = thread.soup.find_all("div", "post-container")
+            posts = thread.soup.find_all("div", class_="post-container")
             populate_image_map(posts, image_map)
     print("Downloading images")
     await tqdm.gather(
@@ -540,9 +544,13 @@ async def download_chapters(
         assert thread.soup is not None
         # Evil posts (presumably caused by html copy-pasting?) may have post-containers within post-containers.
         # So we only check direct descendents of flat-post-replies.
-        first_post = thread.soup.find("div", "post-post")
-        replies_container = thread.soup.find("div", "flat-post-replies")
-        replies = replies_container.find_all("div", "post-container", recursive=False)
+        first_post = thread.soup.find("div", class_="post-post")
+        assert first_post is not None
+        replies_container = thread.soup.find("div", class_="flat-post-replies")
+        assert replies_container is not None
+        replies = replies_container.find_all(
+            "div", class_="post-container", recursive=False
+        )
         posts = chain([first_post], replies)
         thread.add_rendered_sections(
             list(render_posts(posts, image_map, thread.authors, thread.title, split))
@@ -557,9 +565,13 @@ def map_permalinks_to_filenames(threads: list[Thread]) -> dict[str, str]:
                 file_name = thread.section_name(j)
                 soup = BeautifulSoup(compiled_section.content, "html.parser")
                 for anchor in soup.find_all("a"):
-                    if "id" not in anchor.attrs:
-                        continue
-                    match = COMPILED_REPLY_RE.match(anchor["id"])
+                    match anchor.get("id"):
+                        case None:
+                            continue
+                        case list():
+                            raise ValueError("Multiple IDs for link")
+                        case id:
+                            match = COMPILED_REPLY_RE.match(id)
                     if match is None:
                         continue
                     reply_id = int(match.group(1))
@@ -590,7 +602,7 @@ def replace_or_tag_external_links_from_sections(threads: list[Thread]):
                 for a in section.html.find_all("a"):
                     if "href" not in a.attrs:
                         continue
-                    raw_url = a["href"]
+                    raw_url = get_attr(a, "href")
                     url = urlparse(raw_url)
                     if RELATIVE_REPLY_RE.match(raw_url) and raw_url in anchor_sections:
                         a["href"] = url._replace(path=anchor_sections[raw_url]).geturl()
@@ -599,7 +611,9 @@ def replace_or_tag_external_links_from_sections(threads: list[Thread]):
                         if abs is not None and abs.group("relative") in anchor_sections:
                             a["href"] = anchor_sections[abs.group("relative")]
                         else:  # External link
-                            a["class"] = a.get("class", []) + ["extlink"]
+                            a["class"] = AttributeValueList(
+                                a.get_attribute_list("class") + ["extlink"]
+                            )
                             if url.netloc == "":
                                 a["href"] = url._replace(
                                     scheme="https", netloc="glowfic.com"
@@ -642,6 +656,12 @@ def compile_chapters(threads: list[Thread]):
 def generate_section_title_pages(sections: list[Section]):
     section_digits = len(str(len(sections)))
     for i, section in enumerate(sections):
+        if section.title is None:
+            # This the "null section". Normally for continuities with no
+            # subsections, but can also exist as a "default" section in a
+            # category with sections.
+            # We don't generate title pages here.
+            continue
         title_page = HtmlSection()
         title_page.body.extend(
             BeautifulSoup('<h1 class="title">%s</h1>' % section.title, "html.parser")
@@ -674,53 +694,36 @@ def generate_section_title_pages(sections: list[Section]):
 
 def generate_toc_and_spine(
     book_structure: Thread | Section | Continuity,
-) -> tuple[list[EpubHtml | list[EpubHtml | list[EpubHtml]]], list[str | EpubHtml]]:
-    spine = ["nav"]
+) -> tuple[list[EpubHtml], list[str | EpubHtml]]:
+    spine: list[str | EpubHtml] = ["nav"]
     match book_structure:
         case Thread():
+            assert book_structure.compiled_sections is not None
             toc = [book_structure.compiled_sections[0]]
             spine += book_structure.compiled_sections
         case Section():
-            toc = [thread.compiled_sections[0] for thread in book_structure.threads]
-            spine += list(
-                chain(*[thread.compiled_sections for thread in book_structure.threads])
-            )
+            toc = []
+            spine = []
+            for thread in book_structure.threads:
+                assert thread.compiled_sections is not None
+                toc.append(thread.compiled_sections[0])
+                spine += thread.compiled_sections
         case Continuity():
             toc = []
             for section in book_structure.sections:
-                toc.append(
-                    [
-                        section.title_page,
-                        [thread.compiled_sections[0] for thread in section.threads],
-                    ]
-                )
-                spine += [section.title_page] + list(
-                    chain(*[thread.compiled_sections for thread in section.threads])
-                )
+                assert section.title_page is not None
+                toc.append(section.title_page)
+                spine.append(section.title_page)
+                for thread in section.threads:
+                    assert thread.compiled_sections is not None
+                    toc.append(thread.compiled_sections[0])
+                    spine += thread.compiled_sections
             if book_structure.sectionless_threads is not None:
-                toc += [
-                    thread.compiled_sections[0]
-                    for thread in book_structure.sectionless_threads.threads
-                ]
-                spine += list(
-                    chain(
-                        *[
-                            thread.compiled_sections
-                            for thread in book_structure.sectionless_threads.threads
-                        ]
-                    )
-                )
+                for thread in book_structure.sectionless_threads.threads:
+                    assert thread.compiled_sections is not None
+                    toc.append(thread.compiled_sections[0])
+                    spine += thread.compiled_sections
     return toc, spine
-
-
-def validate_tag(tag: Tag, soup: BeautifulSoup) -> Tag:
-    if tag is not None:
-        return tag
-    err = soup.find("div", "flash error")
-    if err is not None:
-        raise RuntimeError(err.text.strip())
-    else:
-        raise RuntimeError("Unknown error: tag missing")
 
 
 @dataclass(frozen=True)
@@ -803,7 +806,7 @@ async def get_continuity(
 
 def get_images_as_epub_items(image_map: ImageMap) -> list[EpubItem]:
     items = []
-    for url, mapped_image in image_map.map.items():
+    for mapped_image in image_map.map.values():
         if not isinstance(mapped_image.data, Succeeded):
             continue
         filename = mapped_image.get_filename()

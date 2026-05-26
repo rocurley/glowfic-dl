@@ -1,6 +1,7 @@
 from io import BytesIO
 from typing import Optional
 
+from bs4 import Tag
 from lxml import etree
 from PIL import Image, UnidentifiedImageError
 
@@ -114,3 +115,11 @@ def make_filename_valid_for_epub3(filename: str) -> str:
             name_truncated = name_truncated[:-1]
             full_name_truncated = "%s.%s" % (name_truncated, ext)
         return full_name_truncated
+
+
+def get_attr(tag: Tag, attr: str) -> str:
+    out = tag[attr]
+    assert not isinstance(
+        out, list
+    ), "get_attr called on attribute with multiple values"
+    return out

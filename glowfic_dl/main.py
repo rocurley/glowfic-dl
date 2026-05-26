@@ -1,13 +1,8 @@
 import argparse
-import os
-from typing import Literal
-import typing
 
 import aiohttp
 import aiolimiter
 from ebooklib import epub
-
-from .auth import login
 
 from .helpers import make_filename_valid_for_epub3
 from .render import (
@@ -23,6 +18,7 @@ from .render import (
     get_images_as_epub_items,
     get_book_structure,
 )
+
 # TODO:
 # * Better kobo handling
 # * Rewrite internal links
@@ -59,6 +55,7 @@ async def main():
     args = get_args()
     await download_ebook(args.url, args.split, "title")
 
+
 async def download_ebook(url: str, split: str, filename_mode: str) -> str:
     limiter = aiolimiter.AsyncLimiter(1, 1)
     async with aiohttp.ClientSession(
@@ -79,7 +76,9 @@ async def download_ebook(url: str, split: str, filename_mode: str) -> str:
 
             match filename_mode:
                 case "title":
-                    out_path = make_filename_valid_for_epub3("%s.epub" % book_structure.title)
+                    out_path = make_filename_valid_for_epub3(
+                        "%s.epub" % book_structure.title
+                    )
                 case "url":
                     match book_structure:
                         case Thread():
@@ -89,7 +88,9 @@ async def download_ebook(url: str, split: str, filename_mode: str) -> str:
                         case Continuity():
                             out_path = f"boards_{book_structure.id}.epub"
                 case _:
-                    raise Exception(f"Unexpected filename mode: should be url or title but got {filename_mode}")
+                    raise Exception(
+                        f"Unexpected filename mode: should be url or title but got {filename_mode}"
+                    )
             try:
                 old_book = epub.read_epub(out_path)
             except:
@@ -111,6 +112,7 @@ async def download_ebook(url: str, split: str, filename_mode: str) -> str:
             compile_chapters(book_structure.threads)
 
             for thread in book_structure.threads:
+                assert thread.compiled_sections is not None
                 for section in thread.compiled_sections:
                     book.add_item(section)
             if isinstance(book_structure, Continuity):
