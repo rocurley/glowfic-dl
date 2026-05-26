@@ -114,3 +114,7 @@ def make_filename_valid_for_epub3(filename: str) -> str:
             name_truncated = name_truncated[:-1]
             full_name_truncated = "%s.%s" % (name_truncated, ext)
         return full_name_truncated
+
+def unwrap[T](x : T | None) -> None:
+    assert x is not None
+    return x

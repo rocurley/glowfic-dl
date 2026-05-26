@@ -1,20 +1,19 @@
 import asyncio
 from datetime import datetime
-import math
-from itertools import chain, count
+from itertools import chain
 import itertools
 from pathlib import Path
 import re
 from typing import Any, Iterable, Optional, Union
 import ebooklib
 from typing_extensions import Self
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 from hashlib import sha256
 
 import aiohttp
 import aiolimiter
 from dataclasses import dataclass
-from bs4 import BeautifulSoup, PageElement
+from bs4 import BeautifulSoup
 from bs4.element import Tag, ResultSet
 from ebooklib.epub import EpubHtml, EpubItem, EpubBook
 from lxml import etree
@@ -101,10 +100,12 @@ class Succeeded:
 
 ImageData = Union[Uninitialized, Failed, Succeeded]
 
+
 def parse_image_filename(filename: Path) -> tuple[str, str, str]:
     [ty, hash] = filename.stem.split("_")
     ext = filename.suffix.strip(".")
     return (ty, hash, ext)
+
 
 class MappedImage:
     def __init__(self, type: str, hash: str):
@@ -155,7 +156,7 @@ class ImageMap:
     def __init__(self):
         self.map: dict[str, MappedImage] = {}  # url -> image
         self.cached_images: dict[str, MappedImage] = {}  # hash -> image
-        self.cached_posts_images: set[str] = set() # by hash
+        self.cached_posts_images: set[str] = set()  # by hash
 
     def add_icon(self, url: str):
         self._add_image_untyped(url, "icon")
@@ -183,8 +184,6 @@ class ImageMap:
     def add_cached_image_usage(self, path: str):
         (_, hash, _) = parse_image_filename(Path(path))
         self.cached_posts_images.add(hash)
-
-
 
     def get_icon_name(self, url: str) -> Optional[str]:
         if url not in self.map:
@@ -280,9 +279,7 @@ class Thread:
                 # Unclear why these are lost
                 item.title = self.title
                 item.add_meta(name="glowfic-post-id", content=str(self.id))
-                item.add_link(
-                    href="../style.css", rel="stylesheet", type="text/css"
-                )
+                item.add_link(href="../style.css", rel="stylesheet", type="text/css")
                 compiled_sections.append(item)
         # Can happen if the re-run with more permissions
         if len(compiled_sections) == 0:
@@ -394,19 +391,23 @@ async def download_image(
 
 
 def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
-    try:
-        character = post.find("div", "post-character").text.strip()
-    except AttributeError:
-        character = None
-    try:
-        screen_name = post.find("div", "post-screenname").text.strip()
-    except AttributeError:
-        screen_name = None
-    try:
-        author = post.find("div", "post-author").text.strip()
-    except AttributeError:
-        author = None
-    content = post.find("div", "post-content")
+    match post.find("div", class_="post-character"):
+        case None:
+            character = None
+        case tag:
+            character = tag.text.strip()
+    match post.find("div", class_="post-screenname"):
+        case None:
+            screen_name = None
+        case tag:
+            screen_name = tag.text.strip()
+    match post.find("div", class_="post-author"):
+        case None:
+            author = None
+        case tag:
+            author = tag.text.strip()
+    content = post.find("div", class_="post-content")
+    assert content is not None
     header = BeautifulSoup("<p><strong></strong></p>", "html.parser")
     header.find("strong").string = " / ".join(
         [x for x in [character, screen_name, author] if x is not None]
