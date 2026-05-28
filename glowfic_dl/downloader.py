@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from tqdm.asyncio import tqdm
 
-from .helpers import get_attr
 from .auth import auth_get, login
 from .render import (
     Continuity,
@@ -19,7 +18,6 @@ from .render import (
     Section,
     Succeeded,
     Thread,
-    populate_image_map,
     render_posts,
 )
 
@@ -128,24 +126,8 @@ class Downloader:
                 if thread.compiled_sections is None
             ]
         )
-        for thread in threads:
-            if thread.compiled_sections is not None:
-                for section in thread.compiled_sections:
-                    soup = BeautifulSoup(section.content, "html.parser")
-                    images = soup.find_all("img")
-                    for image in images:
-                        image_map.add_cached_image_usage(get_attr(image, "src"))
-            else:
-                assert thread.soup is not None
-                posts = thread.soup.find_all("div", class_="post-container")
-                populate_image_map(posts, image_map)
-        print("Downloading images")
-        await tqdm.gather(
-            *[
-                self.download_image(url, mapped_image)
-                for (url, mapped_image) in image_map.map.items()
-            ]
-        )
+        image_map.populate_from_threads(threads)
+        await self.download_images(image_map)
         for thread in threads:
             if thread.compiled_sections is not None:
                 continue
@@ -165,6 +147,15 @@ class Downloader:
                     render_posts(posts, image_map, thread.authors, thread.title, split)
                 )
             )
+
+    async def download_images(self, image_map):
+        print("Downloading images")
+        await tqdm.gather(
+            *[
+                self.download_image(url, mapped_image)
+                for (url, mapped_image) in image_map.map.items()
+            ]
+        )
 
     async def download_image(self, url: str, mapped_image: MappedImage):
         if isinstance(mapped_image.data, Succeeded):

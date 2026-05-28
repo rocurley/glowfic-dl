@@ -196,6 +196,31 @@ class ImageMap:
         for image in book.get_items_of_type(ebooklib.ITEM_IMAGE):
             self.add_cached_image(Path(image.get_name()), image.get_content())
 
+    def populate_from_threads(self, threads):
+        for thread in threads:
+            if thread.compiled_sections is not None:
+                for section in thread.compiled_sections:
+                    soup = BeautifulSoup(section.content, "html.parser")
+                    images = soup.find_all("img")
+                    for image in images:
+                        self.add_cached_image_usage(get_attr(image, "src"))
+            else:
+                assert thread.soup is not None
+                posts = thread.soup.find_all("div", class_="post-container")
+                self.populate_from_posts(posts)
+
+    def populate_from_posts(self, posts: ResultSet):
+        # Find icons
+        for post in posts:
+            icon = post.find("img", "icon")
+            if icon:
+                self.add_icon(icon["src"])
+
+        # Find non-icon images
+        for post in posts:
+            for image in post.find("div", "post-content").find_all("img"):
+                self.add_image(image["src"])
+
 
 class RenderedPost:
     def __init__(self, html: BeautifulSoup, permalink: str, permalink_fragment: str):
@@ -344,19 +369,6 @@ class Continuity:
 ###################
 ##   Functions   ##
 ###################
-
-
-def populate_image_map(posts: ResultSet, image_map: ImageMap):
-    # Find icons
-    for post in posts:
-        icon = post.find("img", "icon")
-        if icon:
-            image_map.add_icon(icon["src"])
-
-    # Find non-icon images
-    for post in posts:
-        for image in post.find("div", "post-content").find_all("img"):
-            image_map.add_image(image["src"])
 
 
 def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
