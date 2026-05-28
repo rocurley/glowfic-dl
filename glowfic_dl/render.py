@@ -674,7 +674,7 @@ def generate_section_title_pages(sections: list[Section]):
                 )
             )
         file_name = "Text/" + make_filename_valid_for_epub3(
-            "section%.*i (%s).xhtml" % (section_digits, i + 1, section.title)
+            "section%.*i.xhtml" % (section_digits, i + 1)
         )
         compiled_title_page = EpubHtml(
             title=section.title, file_name=file_name, media_type="application/xhtml+xml"
