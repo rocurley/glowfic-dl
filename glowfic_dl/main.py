@@ -89,6 +89,14 @@ async def download_ebook(url: str, split: str, filename_mode: str) -> str:
     render_threads(book_structure.threads, image_map, split)
     compile_threads(book_structure.threads)
 
+    book = assemble_book(book_structure, image_map)
+
+    print("Saving book to %s" % out_path)
+    epub.write_epub(out_path, book, {})
+    return out_path
+
+
+def assemble_book(book_structure: Thread | Section | Continuity, image_map: ImageMap):
     book = epub.EpubBook()
     for thread in book_structure.threads:
         assert thread.compiled_sections is not None
@@ -121,10 +129,7 @@ async def download_ebook(url: str, split: str, filename_mode: str) -> str:
     book.toc, book.spine = generate_toc_and_spine(book_structure)
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
-
-    print("Saving book to %s" % out_path)
-    epub.write_epub(out_path, book, {})
-    return out_path
+    return book
 
 
 def gen_ebook_path(filename_mode: str, book_structure: Thread | Section | Continuity):

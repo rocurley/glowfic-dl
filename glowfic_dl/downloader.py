@@ -31,6 +31,9 @@ class Downloader:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        _ = exc_type
+        _ = exc_val
+        _ = exc_tb
         await self.slow_session.close()
         await self.fast_session.close()
 
@@ -115,7 +118,6 @@ class Downloader:
         resp.close()
         thread.add_soup(soup)
 
-    # TODO: Split out rendering stuff
     async def download_threads(
         self,
         threads: list[Thread],
