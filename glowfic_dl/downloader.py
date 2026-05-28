@@ -1,25 +1,16 @@
 import asyncio
-from datetime import datetime
 from itertools import chain
 import itertools
-from pathlib import Path
-import re
-from typing import Any, Iterable, Optional, Union
-import ebooklib
-from typing_extensions import Self
+from typing import Any
 from urllib.parse import urlparse
-from hashlib import sha256
 
 import aiohttp
 import aiolimiter
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
-from bs4.element import AttributeValueList, Tag, ResultSet
-from ebooklib.epub import EpubHtml, EpubItem, EpubBook
-from lxml import etree
 from tqdm.asyncio import tqdm
 
-from .helpers import get_attr, make_filename_valid_for_epub3, process_image_for_epub3
+from .helpers import get_attr
 from .auth import auth_get, login
 from .render import (
     Continuity,
