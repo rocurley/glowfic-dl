@@ -6,12 +6,13 @@ from glowfic_dl.downloader import Downloader
 
 from .helpers import make_filename_valid_for_epub3
 from .render import (
+    render_threads,
     stylesheet,
     Continuity,
     ImageMap,
     Section,
     Thread,
-    compile_chapters,
+    compile_threads,
     generate_section_title_pages,
     generate_toc_and_spine,
     get_images_as_epub_items,
@@ -95,12 +96,13 @@ async def download_ebook(url: str, split: str, filename_mode: str) -> str:
         image_map.populate_from_book(old_book)
         book_structure.load_compiled_sections_from_old_book(old_book)
 
-    await downloader.download_chapters(
+    await downloader.download_threads(
         book_structure.threads,
-        image_map,
-        split,
     )
-    compile_chapters(book_structure.threads)
+    image_map.populate_from_threads(book_structure.threads)
+    await downloader.download_images(image_map)
+    render_threads(book_structure.threads, image_map, split)
+    compile_threads(book_structure.threads)
 
     for thread in book_structure.threads:
         assert thread.compiled_sections is not None

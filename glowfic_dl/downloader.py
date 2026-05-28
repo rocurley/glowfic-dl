@@ -1,5 +1,4 @@
 import asyncio
-from itertools import chain
 import itertools
 from typing import Any
 from urllib.parse import urlparse
@@ -13,12 +12,10 @@ from tqdm.asyncio import tqdm
 from .auth import auth_get, login
 from .render import (
     Continuity,
-    ImageMap,
     MappedImage,
     Section,
     Succeeded,
     Thread,
-    render_posts,
 )
 
 
@@ -112,11 +109,9 @@ class Downloader:
         thread.add_soup(soup)
 
     # TODO: Split out rendering stuff
-    async def download_chapters(
+    async def download_threads(
         self,
         threads: list[Thread],
-        image_map: ImageMap,
-        split: str,
     ):
         print("Downloading chapter texts")
         await tqdm.gather(
@@ -126,27 +121,6 @@ class Downloader:
                 if thread.compiled_sections is None
             ]
         )
-        image_map.populate_from_threads(threads)
-        await self.download_images(image_map)
-        for thread in threads:
-            if thread.compiled_sections is not None:
-                continue
-            assert thread.soup is not None
-            # Evil posts (presumably caused by html copy-pasting?) may have post-containers within post-containers.
-            # So we only check direct descendents of flat-post-replies.
-            first_post = thread.soup.find("div", class_="post-post")
-            assert first_post is not None
-            replies_container = thread.soup.find("div", class_="flat-post-replies")
-            assert replies_container is not None
-            replies = replies_container.find_all(
-                "div", class_="post-container", recursive=False
-            )
-            posts = chain([first_post], replies)
-            thread.add_rendered_sections(
-                list(
-                    render_posts(posts, image_map, thread.authors, thread.title, split)
-                )
-            )
 
     async def download_images(self, image_map):
         print("Downloading images")

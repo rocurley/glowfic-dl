@@ -196,7 +196,7 @@ class ImageMap:
         for image in book.get_items_of_type(ebooklib.ITEM_IMAGE):
             self.add_cached_image(Path(image.get_name()), image.get_content())
 
-    def populate_from_threads(self, threads):
+    def populate_from_threads(self, threads: list["Thread"]):
         for thread in threads:
             if thread.compiled_sections is not None:
                 for section in thread.compiled_sections:
@@ -477,6 +477,26 @@ def render_posts(
         yield current_section
 
 
+def render_threads(threads: list[Thread], image_map: ImageMap, split: str):
+    for thread in threads:
+        if thread.compiled_sections is not None:
+            continue
+        assert thread.soup is not None
+        # Evil posts (presumably caused by html copy-pasting?) may have post-containers within post-containers.
+        # So we only check direct descendents of flat-post-replies.
+        first_post = thread.soup.find("div", class_="post-post")
+        assert first_post is not None
+        replies_container = thread.soup.find("div", class_="flat-post-replies")
+        assert replies_container is not None
+        replies = replies_container.find_all(
+            "div", class_="post-container", recursive=False
+        )
+        posts = chain([first_post], replies)
+        thread.add_rendered_sections(
+            list(render_posts(posts, image_map, thread.authors, thread.title, split))
+        )
+
+
 def map_permalinks_to_filenames(threads: list[Thread]) -> dict[str, str]:
     anchor_sections = {}
     for thread in threads:
@@ -568,7 +588,7 @@ def compile_sections(threads: list[Thread]):
         thread.add_compiled_sections(compiled_sections)
 
 
-def compile_chapters(threads: list[Thread]):
+def compile_threads(threads: list[Thread]):
     replace_or_tag_external_links_from_sections(threads)
     compile_sections(threads)
 
