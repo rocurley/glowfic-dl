@@ -58,34 +58,34 @@ async def main():
 # TODO: Probably want to add a step where we fetch the barebones metadata (so we can check the last update).
 # Maybe want to make a new type for that metadata.
 async def download_ebook(url: str, split: str, filename_mode: str) -> str:
-    downloader = Downloader()
-    book_structure = await downloader.get_book_structure(url)
-    match book_structure:
-        case Thread():
-            print("Found 1 thread")
-        case Section():
-            print("Found %i threads" % len(book_structure.threads))
-        case Continuity():
-            print(
-                "Found %i sections and %i threads"
-                % (len(book_structure.sections), len(book_structure.threads))
-            )
+    async with Downloader() as downloader:
+        book_structure = await downloader.get_book_structure(url)
+        match book_structure:
+            case Thread():
+                print("Found 1 thread")
+            case Section():
+                print("Found %i threads" % len(book_structure.threads))
+            case Continuity():
+                print(
+                    "Found %i sections and %i threads"
+                    % (len(book_structure.sections), len(book_structure.threads))
+                )
 
-    out_path = gen_ebook_path(filename_mode, book_structure)
-    try:
-        old_book = epub.read_epub(out_path)
-    except:
-        old_book = None
-    image_map = ImageMap()
-    if old_book:
-        image_map.populate_from_book(old_book)
-        book_structure.load_compiled_sections_from_old_book(old_book)
+        out_path = gen_ebook_path(filename_mode, book_structure)
+        try:
+            old_book = epub.read_epub(out_path)
+        except:
+            old_book = None
+        image_map = ImageMap()
+        if old_book:
+            image_map.populate_from_book(old_book)
+            book_structure.load_compiled_sections_from_old_book(old_book)
 
-    await downloader.download_threads(
-        book_structure.threads,
-    )
-    image_map.populate_from_threads(book_structure.threads)
-    await downloader.download_images(image_map)
+        await downloader.download_threads(
+            book_structure.threads,
+        )
+        image_map.populate_from_threads(book_structure.threads)
+        await downloader.download_images(image_map)
     render_threads(book_structure.threads, image_map, split)
     compile_threads(book_structure.threads)
 

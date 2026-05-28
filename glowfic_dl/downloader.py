@@ -27,6 +27,13 @@ class Downloader:
         )
         self.fast_session = aiohttp.ClientSession()
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.slow_session.close()
+        await self.fast_session.close()
+
     async def get_book_structure(self, url: str) -> Thread | Section | Continuity:
 
         if "posts" in url:
