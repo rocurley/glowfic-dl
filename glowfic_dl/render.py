@@ -1,26 +1,21 @@
-import asyncio
-from datetime import datetime
 from itertools import chain
-import itertools
 from pathlib import Path
 import re
-from typing import Any, Iterable, Optional, Union
+from typing import Iterable, Optional, Union
 import ebooklib
 from typing_extensions import Self
 from urllib.parse import urlparse
 from hashlib import sha256
 
-import aiohttp
-import aiolimiter
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from bs4.element import AttributeValueList, Tag, ResultSet
 from ebooklib.epub import EpubHtml, EpubItem, EpubBook
 from lxml import etree
-from tqdm.asyncio import tqdm
 
+
+from .book_structure import Thread, Section, Continuity, RenderedPost, HtmlSection
 from .helpers import get_attr, make_filename_valid_for_epub3, process_image_for_epub3
-from .auth import auth_get, login
 
 
 ################
@@ -63,15 +58,6 @@ div.post {
     vertical-align: super;
 	font-size: 0.7rem;
 }
-""".lstrip()
-
-output_template = """
-<html>
-<head>
-</head>
-<body>
-</body>
-</html>
 """.lstrip()
 
 
@@ -202,188 +188,35 @@ class ImageMap:
         for image in book.get_items_of_type(ebooklib.ITEM_IMAGE):
             self.add_cached_image(Path(image.get_name()), image.get_content())
 
+    def populate_from_threads(self, threads: list["Thread"]):
+        for thread in threads:
+            if thread.compiled_sections is not None:
+                for section in thread.compiled_sections:
+                    soup = BeautifulSoup(section.content, "html.parser")
+                    images = soup.find_all("img")
+                    for image in images:
+                        self.add_cached_image_usage(get_attr(image, "src"))
+            else:
+                assert thread.soup is not None
+                posts = thread.soup.find_all("div", class_="post-container")
+                self.populate_from_posts(posts)
 
-class RenderedPost:
-    def __init__(self, html: BeautifulSoup, permalink: str, permalink_fragment: str):
-        self.html = html
-        self.permalink = permalink
-        self.permalink_fragment = permalink_fragment
+    def populate_from_posts(self, posts: ResultSet):
+        # Find icons
+        for post in posts:
+            icon = post.find("img", "icon")
+            if icon:
+                self.add_icon(icon["src"])
 
-
-class HtmlSection:
-    def __init__(self):
-        self.html = BeautifulSoup(output_template, "html.parser")
-        body = self.html.find("body")
-        assert body is not None
-        self.body = body
-        self.size = 0
-        self.link_targets = []
-
-    def append(self, post: RenderedPost):
-        self.size += len(post.html.encode())
-        self.body.append(post.html)
-        self.link_targets.append(post.permalink)
-
-
-class Thread:
-    def __init__(self, post_json):
-        self.id: int = post_json["id"]
-        self.title: str = post_json["subject"]
-        self.url: str = "https://glowfic.com/posts/%d" % post_json["id"]
-        self.updated_at: datetime = datetime.fromisoformat(
-            post_json["tagged_at"].strip("Z")
-        )
-        self.description: str = post_json.get("description")
-        self.authors = [author["username"] for author in post_json["authors"]]
-
-        self.soup: BeautifulSoup | None = None
-        self.rendered_sections: list[HtmlSection] | None = None
-        self.compiled_sections: list[EpubHtml] | None = None
-
-        self.threads: list[Thread] = [self]
-
-    def add_soup(self, soup: BeautifulSoup):
-        self.soup = soup
-
-    def add_rendered_sections(self, rendered_sections: list[HtmlSection]):
-        self.rendered_sections = rendered_sections
-
-    def add_compiled_sections(self, compiled_sections: list[EpubHtml]):
-        self.compiled_sections = compiled_sections
-
-    def section_name(self, section_ix: int) -> str:
-        sections = self.compiled_sections or self.rendered_sections
-        assert sections is not None
-        section_digits = len(str(len(sections) - 1))
-        return make_filename_valid_for_epub3(
-            "%i-%.*i.xhtml"
-            % (
-                self.id,
-                section_digits,
-                section_ix,
-            )
-        )
-
-    def load_compiled_sections_from_old_book(self, old_book: EpubBook):
-        old_version_ts = last_modified(old_book)
-        if old_version_ts < self.updated_at:
-            return
-        compiled_sections = []
-        for item in old_book.get_items():
-            item.id = None
-            if item.get_name().startswith(f"Text/{self.id}"):
-                # Unclear why these are lost
-                item.title = self.title
-                item.add_meta(name="glowfic-post-id", content=str(self.id))
-                item.add_link(href="../style.css", rel="stylesheet", type="text/css")
-                compiled_sections.append(item)
-        # Can happen if the re-run with more permissions
-        if len(compiled_sections) == 0:
-            return
-        compiled_sections.sort(key=EpubHtml.get_name)
-        self.compiled_sections = compiled_sections
-
-
-def last_modified(book: EpubBook) -> datetime:
-    for (content, attrs) in book.get_metadata("OPF", "meta"):
-        if attrs.get("property") == "dcterms:modified":
-            return datetime.fromisoformat(content.strip("Z"))
-    raise Exception("Couldn't find dcterms:modified")
-
-
-class Section:
-    def __init__(
-        self,
-        id: int | None,
-        title: Optional[str],
-        threads: list[Thread],
-        description: Optional[str] = None,
-    ):
-        self.id = id
-        self.title = title
-        self.threads = threads
-        self.description = description
-
-        self.title_page = None
-
-    @classmethod
-    def from_jsons(cls, id: int | None, name: str | None, post_jsons) -> Self:
-        post_jsons.sort(key=lambda j: j["section_order"])
-        threads = [Thread(post_json) for post_json in post_jsons]
-        return cls(id=id, title=name, threads=threads)
-
-    def add_title_page(self, title_page: EpubHtml):
-        self.title_page = title_page
-
-    def load_compiled_sections_from_old_book(self, old_book: EpubBook):
-        for thread in self.threads:
-            thread.load_compiled_sections_from_old_book(old_book)
-
-
-class Continuity:
-    def __init__(
-        self,
-        id: int,
-        title: str,
-        sections: list[Section],
-        sectionless_threads: Optional[Section] = None,
-    ):
-        self.id = id
-        self.title = title
-        self.sections = sections
-        self.sectionless_threads = sectionless_threads
-
-        self.title_page = None
-
-        self.threads = list(chain(*[section.threads for section in self.sections]))
-        if sectionless_threads is not None:
-            self.threads += sectionless_threads.threads
-
-    def add_title_page(self, title_page: HtmlSection):
-        self.title_page = title_page
-
-    def load_compiled_sections_from_old_book(self, old_book: EpubBook):
-        for thread in self.threads:
-            thread.load_compiled_sections_from_old_book(old_book)
+        # Find non-icon images
+        for post in posts:
+            for image in post.find("div", "post-content").find_all("img"):
+                self.add_image(image["src"])
 
 
 ###################
 ##   Functions   ##
 ###################
-
-
-def populate_image_map(posts: ResultSet, image_map: ImageMap):
-    # Find icons
-    for post in posts:
-        icon = post.find("img", "icon")
-        if icon:
-            image_map.add_icon(icon["src"])
-
-    # Find non-icon images
-    for post in posts:
-        for image in post.find("div", "post-content").find_all("img"):
-            image_map.add_image(image["src"])
-
-
-async def download_image(
-    session: aiohttp.ClientSession, url: str, mapped_image: MappedImage
-):
-    if isinstance(mapped_image.data, Succeeded):
-        return
-    try:
-        headers = {}
-        if "imgur" in url:
-            headers = {"user-agent": "curl/8.1.1", "accept": "*/*"}
-        async with session.get(url, timeout=15, headers=headers) as resp:
-            file = await resp.read()
-            if len(file) == 0:
-                print("Empty download for %s" % url)
-                file = None
-
-    except (aiohttp.ClientError, asyncio.TimeoutError):
-        print("Failed to download %s" % url)
-        file = None
-    mapped_image.add_file(file, url)
 
 
 def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
@@ -492,52 +325,7 @@ def render_posts(
         yield current_section
 
 
-async def download_chapter(
-    session: aiohttp.ClientSession,
-    limiter: aiolimiter.AsyncLimiter,
-    thread: Thread,
-):
-    await limiter.acquire()
-    resp = await auth_get(session, thread.url, params={"view": "flat"})
-    soup = BeautifulSoup(await resp.text(), "html.parser")
-    resp.close()
-    thread.add_soup(soup)
-
-
-async def download_chapters(
-    slow_session: aiohttp.ClientSession,
-    limiter: aiolimiter.AsyncLimiter,
-    fast_session: aiohttp.ClientSession,
-    threads: list[Thread],
-    image_map: ImageMap,
-    split: str,
-):
-    print("Downloading chapter texts")
-    await tqdm.gather(
-        *[
-            download_chapter(slow_session, limiter, thread)
-            for thread in threads
-            if thread.compiled_sections is None
-        ]
-    )
-    for thread in threads:
-        if thread.compiled_sections is not None:
-            for section in thread.compiled_sections:
-                soup = BeautifulSoup(section.content, "html.parser")
-                images = soup.find_all("img")
-                for image in images:
-                    image_map.add_cached_image_usage(get_attr(image, "src"))
-        else:
-            assert thread.soup is not None
-            posts = thread.soup.find_all("div", class_="post-container")
-            populate_image_map(posts, image_map)
-    print("Downloading images")
-    await tqdm.gather(
-        *[
-            download_image(fast_session, url, mapped_image)
-            for (url, mapped_image) in image_map.map.items()
-        ]
-    )
+def render_threads(threads: list[Thread], image_map: ImageMap, split: str):
     for thread in threads:
         if thread.compiled_sections is not None:
             continue
@@ -620,7 +408,8 @@ def replace_or_tag_external_links_from_sections(threads: list[Thread]):
                                 ).geturl()
 
 
-def compile_sections(threads: list[Thread]):
+def compile_threads(threads: list[Thread]):
+    replace_or_tag_external_links_from_sections(threads)
     for thread in threads:
         if thread.compiled_sections is not None:
             continue
@@ -646,11 +435,6 @@ def compile_sections(threads: list[Thread]):
             )
             compiled_sections.append(compiled_section)
         thread.add_compiled_sections(compiled_sections)
-
-
-def compile_chapters(threads: list[Thread]):
-    replace_or_tag_external_links_from_sections(threads)
-    compile_sections(threads)
 
 
 def generate_section_title_pages(sections: list[Section]):
@@ -724,84 +508,6 @@ def generate_toc_and_spine(
                     toc.append(thread.compiled_sections[0])
                     spine += thread.compiled_sections
     return toc, spine
-
-
-@dataclass(frozen=True)
-class SectionInfo:
-    id: int
-    name: str
-    order: int
-
-
-async def get_book_structure(
-    session: aiohttp.ClientSession, limiter: aiolimiter.AsyncLimiter, url: str
-) -> Thread | Section | Continuity:
-
-    if "posts" in url:
-        target_url = "https://glowfic.com/api/v1%s" % urlparse(url).path
-        await limiter.acquire()
-        resp = await auth_get(session, target_url)
-        post_json = await resp.json()
-        return Thread(post_json)
-    elif "board_sections" in url:
-        await login(session, optional=True)
-        section_id = int(urlparse(url).path.split("/")[-1])
-        target_url = "https://glowfic.com/api/v1/subcontinuities/%d" % section_id
-        await limiter.acquire()
-        resp = await auth_get(session, target_url)
-        section_json = await resp.json()
-        board_id = section_json["board_id"]
-        continuity = await get_continuity(session, limiter, board_id)
-        for section in continuity.sections:
-            if section.id == section_id:
-                return section
-        raise Exception("Unable to find section in board")
-    elif "boards" in url:
-        await login(session, optional=True)
-        board_id = int(urlparse(url).path.split("/")[-1])
-        return await get_continuity(session, limiter, board_id)
-    else:
-        raise ValueError(
-            "URL contains neither 'posts' nor 'board_sections' nor 'boards'."
-        )
-
-
-async def get_continuity(
-    session: aiohttp.ClientSession, limiter: aiolimiter.AsyncLimiter, board_id: int
-):
-    target_url = "https://glowfic.com/api/v1/boards/%d" % board_id
-    await limiter.acquire()
-    resp = await auth_get(session, target_url)
-    board_json = await resp.json()
-    title = board_json["name"]
-    target_url = "https://glowfic.com/api/v1/boards/%d/posts" % board_id
-    by_section: dict[SectionInfo | None, list[Any]] = {}
-    for page in itertools.count(start=1):
-        await limiter.acquire()
-        resp = await auth_get(session, target_url, params={"page": page})
-        posts_json = await resp.json()
-        for post_json in posts_json["results"]:
-            section = post_json.get("section")
-            if section is not None:
-                section = SectionInfo(
-                    id=section["id"], name=section["name"], order=section["order"]
-                )
-            else:
-                section = None  # Help the typechecker out
-            if section not in by_section:
-                by_section[section] = []
-            by_section[section].append(post_json)
-        if len(posts_json["results"]) < 25:
-            # 25 results per page, so we're done now.
-            break
-    by_section_list = list((k, v) for (k, v) in by_section.items() if k is not None)
-    by_section_list.sort(key=lambda kv: kv[0].order)
-    sections = [Section.from_jsons(k.id, k.name, v) for (k, v) in by_section_list]
-    if None in by_section:
-        null_section = Section.from_jsons(None, None, by_section[None])
-        return Continuity(board_id, title, sections, null_section)
-    else:
-        return Continuity(board_id, title, sections)
 
 
 def get_images_as_epub_items(image_map: ImageMap) -> list[EpubItem]:
