@@ -71,26 +71,11 @@ async def download_ebook(url: str, split: str, filename_mode: str) -> str:
                 % (len(book_structure.sections), len(book_structure.threads))
             )
 
-    match filename_mode:
-        case "title":
-            out_path = make_filename_valid_for_epub3("%s.epub" % book_structure.title)
-        case "url":
-            match book_structure:
-                case Thread():
-                    out_path = f"replies_{book_structure.id}.epub"
-                case Section():
-                    out_path = f"board_sections_{book_structure.id}.epub"
-                case Continuity():
-                    out_path = f"boards_{book_structure.id}.epub"
-        case _:
-            raise Exception(
-                f"Unexpected filename mode: should be url or title but got {filename_mode}"
-            )
+    out_path = gen_ebook_path(filename_mode, book_structure)
     try:
         old_book = epub.read_epub(out_path)
     except:
         old_book = None
-    book = epub.EpubBook()
     image_map = ImageMap()
     if old_book:
         image_map.populate_from_book(old_book)
@@ -104,6 +89,7 @@ async def download_ebook(url: str, split: str, filename_mode: str) -> str:
     render_threads(book_structure.threads, image_map, split)
     compile_threads(book_structure.threads)
 
+    book = epub.EpubBook()
     for thread in book_structure.threads:
         assert thread.compiled_sections is not None
         for section in thread.compiled_sections:
@@ -139,3 +125,21 @@ async def download_ebook(url: str, split: str, filename_mode: str) -> str:
     print("Saving book to %s" % out_path)
     epub.write_epub(out_path, book, {})
     return out_path
+
+
+def gen_ebook_path(filename_mode: str, book_structure: Thread | Section | Continuity):
+    match filename_mode:
+        case "title":
+            return make_filename_valid_for_epub3("%s.epub" % book_structure.title)
+        case "url":
+            match book_structure:
+                case Thread():
+                    return f"replies_{book_structure.id}.epub"
+                case Section():
+                    return f"board_sections_{book_structure.id}.epub"
+                case Continuity():
+                    return f"boards_{book_structure.id}.epub"
+        case _:
+            raise Exception(
+                f"Unexpected filename mode: should be url or title but got {filename_mode}"
+            )
