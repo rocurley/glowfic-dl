@@ -6,6 +6,8 @@ import ebooklib
 from typing_extensions import Self
 from urllib.parse import urlparse
 from hashlib import sha256
+from datetime import datetime, timezone
+import bisect
 
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
@@ -199,6 +201,7 @@ class ImageMap:
             else:
                 assert thread.soup is not None
                 posts = thread.soup.find_all("div", class_="post-container")
+                posts = filter_posts_by_date(posts, thread.start_date, thread.end_date)
                 self.populate_from_posts(posts)
 
     def populate_from_posts(self, posts: ResultSet):
@@ -291,6 +294,7 @@ def render_posts(
     title: str,
     split: str,
 ) -> Iterable[HtmlSection]:
+
     rendered_posts = [render_post(post, image_map) for post in posts]
 
     # Thread title page
@@ -325,6 +329,30 @@ def render_posts(
         yield current_section
 
 
+def get_posted_time(post: Tag) -> datetime:
+    time_tag = post.find("time")
+    assert time_tag is not None
+    datetime_str = get_attr(time_tag, "datetime")
+    posted_time = datetime.fromisoformat(datetime_str.rstrip('Z'))
+    posted_time = posted_time.replace(tzinfo=timezone.utc)
+    return posted_time
+
+
+def filter_posts_by_date(
+    posts: Iterable[Tag],
+    start_date: Optional[datetime],
+    end_date: Optional[datetime],
+) -> list[Tag]:
+    posts = list(posts)
+    if start_date is not None:
+        i = bisect.bisect_left(posts, start_date, key=get_posted_time)
+        posts = posts[i:]
+    if end_date is not None:
+        i = bisect.bisect_right(posts, end_date, key=get_posted_time)
+        posts = posts[:i]
+    return posts
+
+
 def render_threads(threads: list[Thread], image_map: ImageMap, split: str):
     for thread in threads:
         if thread.compiled_sections is not None:
@@ -339,7 +367,9 @@ def render_threads(threads: list[Thread], image_map: ImageMap, split: str):
         replies = replies_container.find_all(
             "div", class_="post-container", recursive=False
         )
+
         posts = chain([first_post], replies)
+        posts = filter_posts_by_date(posts, thread.start_date, thread.end_date)
         thread.add_rendered_sections(
             list(render_posts(posts, image_map, thread.authors, thread.title, split))
         )

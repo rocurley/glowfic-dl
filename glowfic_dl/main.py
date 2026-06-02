@@ -46,20 +46,42 @@ def get_args() -> argparse.Namespace:
         default="if_large",
         help="how often (if at all) to split the output book's internal representations of threads into multiple files. 'none' means no splits occur except at thread boundaries; 'if_large' splits threads over 200kB in size after every 200kB; 'every_post' splits after each post irrespective of size. Default: if_large",
     )
+    parser.add_argument(
+        '--start-date',
+        help='downloads only replies posted from this date. Format is ISO 8601, e.g. 2026-05-31 or 2026-05-31T14:30',
+    )
+    parser.add_argument(
+        '--end-date',
+        help='downloads only replies posted up to this date. Format is ISO 8601, e.g. 2026-05-31 or 2026-05-31T14:30',
+    )
 
     return parser.parse_args()
 
 
 async def main():
     args = get_args()
-    await download_ebook(args.url, args.split, "title")
+    await download_ebook(
+        args.url,
+        args.split,
+        "title",
+        args.start_date,
+        args.end_date,
+    )
 
 
 # TODO: Probably want to add a step where we fetch the barebones metadata (so we can check the last update).
 # Maybe want to make a new type for that metadata.
-async def download_ebook(url: str, split: str, filename_mode: str) -> str:
+async def download_ebook(
+    url: str,
+    split: str,
+    filename_mode: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
     async with Downloader() as downloader:
         book_structure = await downloader.get_book_structure(url)
+        book_structure.set_threads_date_range(start_date, end_date)
+
         match book_structure:
             case Thread():
                 print("Found 1 thread")

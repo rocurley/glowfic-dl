@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import chain
 from typing import Optional
 from typing_extensions import Self
@@ -54,11 +54,20 @@ class Thread:
         self.id: int = post_json["id"]
         self.title: str = post_json["subject"]
         self.url: str = "https://glowfic.com/posts/%d" % post_json["id"]
+        self.created_at: datetime = datetime.fromisoformat(
+            post_json["created_at"].strip("Z")
+        )
+        self.created_at = self.created_at.replace(tzinfo=timezone.utc)
         self.updated_at: datetime = datetime.fromisoformat(
             post_json["tagged_at"].strip("Z")
         )
+        self.updated_at = self.updated_at.replace(tzinfo=timezone.utc)
         self.description: str = post_json.get("description")
         self.authors = [author["username"] for author in post_json["authors"]]
+
+        # Filled in by the set_threads_date_range methods, called in download_ebook 
+        self.start_date: datetime | None = None
+        self.end_date: datetime | None = None
 
         # Filled in by download_threads
         self.soup: BeautifulSoup | None = None
@@ -69,6 +78,13 @@ class Thread:
 
         self.threads: list[Thread] = [self]
 
+    def is_empty(self) -> bool:
+        if self.end_date is not None and self.end_date < self.created_at:
+            return True
+        if self.start_date is not None and self.start_date > self.updated_at:
+            return True
+        return False
+
     def add_soup(self, soup: BeautifulSoup):
         self.soup = soup
 
@@ -77,6 +93,16 @@ class Thread:
 
     def add_compiled_sections(self, compiled_sections: list[EpubHtml]):
         self.compiled_sections = compiled_sections
+
+    def set_start_date(self, date: datetime | str | None):
+        if isinstance(date, str):
+            date = datetime.fromisoformat(date).astimezone()
+        self.start_date = date
+
+    def set_end_date(self, date: datetime | str | None):
+        if isinstance(date, str):
+            date = datetime.fromisoformat(date).astimezone()
+        self.end_date = date
 
     def section_name(self, section_ix: int) -> str:
         sections = self.compiled_sections or self.rendered_sections
@@ -92,6 +118,8 @@ class Thread:
         )
 
     def load_compiled_sections_from_old_book(self, old_book: EpubBook):
+        if self.start_date is not None or self.end_date is not None:
+            return  # maybe raise error here?
         old_version_ts = last_modified(old_book)
         if old_version_ts < self.updated_at:
             return
@@ -110,6 +138,14 @@ class Thread:
         compiled_sections.sort(key=EpubHtml.get_name)
         self.compiled_sections = compiled_sections
 
+    def set_threads_date_range(
+        self,
+        start_date: datetime | str | None,
+        end_date: datetime | str | None,
+    ):
+        # if a lone thread is empty we'll just output the nothing normally
+        self.set_start_date(start_date)
+        self.set_end_date(end_date)
 
 def last_modified(book: EpubBook) -> datetime:
     for (content, attrs) in book.get_metadata("OPF", "meta"):
@@ -146,6 +182,16 @@ class Section:
         for thread in self.threads:
             thread.load_compiled_sections_from_old_book(old_book)
 
+    def set_threads_date_range(
+        self,
+        start_date: datetime | str | None,
+        end_date: datetime | str | None,
+    ):
+        for thread in self.threads:
+            thread.set_start_date(start_date)
+            thread.set_end_date(end_date)
+        self.threads = [thread for thread in self.threads if not thread.is_empty()]
+
 
 class Continuity:
     def __init__(
@@ -172,3 +218,17 @@ class Continuity:
     def load_compiled_sections_from_old_book(self, old_book: EpubBook):
         for thread in self.threads:
             thread.load_compiled_sections_from_old_book(old_book)
+
+    def set_threads_date_range(
+        self,
+        start_date: datetime | str | None,
+        end_date: datetime | str | None
+    ):
+        for section in self.sections:
+            section.set_threads_date_range(start_date, end_date)
+        if self.sectionless_threads is not None:
+            self.sectionless_threads.set_threads_date_range(start_date, end_date)
+        self.sections = [section for section in self.sections if section.threads]
+        if self.sectionless_threads is not None and not self.sectionless_threads.threads:
+            self.sectionless_threads = None
+        self.threads = [thread for thread in self.threads if not thread.is_empty()]
