@@ -150,7 +150,8 @@ class Thread:
 def last_modified(book: EpubBook) -> datetime:
     for (content, attrs) in book.get_metadata("OPF", "meta"):
         if attrs.get("property") == "dcterms:modified":
-            return datetime.fromisoformat(content.strip("Z"))
+            modified = datetime.fromisoformat(content.strip("Z"))
+            return modified.astimezone()
     raise Exception("Couldn't find dcterms:modified")
 
 
