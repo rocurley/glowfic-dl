@@ -85,6 +85,17 @@ class Thread:
             return True
         return False
 
+    def filename_prefix(self) -> str:
+        if self.start_date is None and self.end_date is None:
+            return str(self.id)
+        start = "start"
+        if self.start_date is not None:
+            start = self.start_date.strftime("%Y%m%dT%H%M%S")
+        end = "end"
+        if self.end_date is not None:
+            end = self.end_date.strftime("%Y%m%dT%H%M%S")
+        return f"{self.id}-{start}-{end}"
+
     def add_soup(self, soup: BeautifulSoup):
         self.soup = soup
 
@@ -109,24 +120,22 @@ class Thread:
         assert sections is not None
         section_digits = len(str(len(sections) - 1))
         return make_filename_valid_for_epub3(
-            "%i-%.*i.xhtml"
+            "%s-%.*i.xhtml"
             % (
-                self.id,
+                self.filename_prefix(),
                 section_digits,
                 section_ix,
             )
         )
 
     def load_compiled_sections_from_old_book(self, old_book: EpubBook):
-        if self.start_date is not None or self.end_date is not None:
-            return  # maybe raise error here?
         old_version_ts = last_modified(old_book)
-        if old_version_ts < self.updated_at:
+        all_done = self.end_date is not None and self.end_date < old_version_ts
+        if not all_done and old_version_ts < self.updated_at:
             return
         compiled_sections = []
         for item in old_book.get_items():
-            item.id = None
-            if item.get_name().startswith(f"Text/{self.id}"):
+            if item.get_name().startswith(f"Text/{self.filename_prefix()}"):
                 # Unclear why these are lost
                 item.title = self.title
                 item.add_meta(name="glowfic-post-id", content=str(self.id))
