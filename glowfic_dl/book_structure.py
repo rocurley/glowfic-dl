@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import chain
 from typing import Optional
 from typing_extensions import Self
@@ -56,7 +56,7 @@ class Thread:
         self.url: str = "https://glowfic.com/posts/%d" % post_json["id"]
         self.updated_at: datetime = datetime.fromisoformat(
             post_json["tagged_at"].strip("Z")
-        )
+        ).replace(tzinfo=timezone.utc)
         self.description: str = post_json.get("description")
         self.authors = [author["username"] for author in post_json["authors"]]
 
@@ -114,7 +114,9 @@ class Thread:
 def last_modified(book: EpubBook) -> datetime:
     for (content, attrs) in book.get_metadata("OPF", "meta"):
         if attrs.get("property") == "dcterms:modified":
-            return datetime.fromisoformat(content.strip("Z"))
+            return datetime.fromisoformat(content.strip("Z")).replace(
+                tzinfo=timezone.utc
+            )
     raise Exception("Couldn't find dcterms:modified")
 
 
