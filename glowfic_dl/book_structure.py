@@ -60,8 +60,7 @@ class Thread:
         self.created_at = self.created_at.replace(tzinfo=timezone.utc)
         self.updated_at: datetime = datetime.fromisoformat(
             post_json["tagged_at"].strip("Z")
-        )
-        self.updated_at = self.updated_at.replace(tzinfo=timezone.utc)
+        ).replace(tzinfo=timezone.utc)
         self.description: str = post_json.get("description")
         self.authors = [author["username"] for author in post_json["authors"]]
 
