@@ -58,10 +58,10 @@ class Thread:
             post_json["created_at"].strip("Z")
         )
         self.created_at = self.created_at.replace(tzinfo=timezone.utc)
-        self.updated_at: datetime = datetime.fromisoformat(
+        self.tagged_at: datetime = datetime.fromisoformat(
             post_json["tagged_at"].strip("Z")
         )
-        self.updated_at = self.updated_at.replace(tzinfo=timezone.utc)
+        self.tagged_at = self.tagged_at.replace(tzinfo=timezone.utc)
         self.description: str = post_json.get("description")
         self.authors = [author["username"] for author in post_json["authors"]]
 
@@ -81,7 +81,7 @@ class Thread:
     def is_empty(self) -> bool:
         if self.end_date is not None and self.end_date < self.created_at:
             return True
-        if self.start_date is not None and self.start_date > self.updated_at:
+        if self.start_date is not None and self.start_date > self.tagged_at:
             return True
         return False
 
@@ -131,7 +131,7 @@ class Thread:
     def load_compiled_sections_from_old_book(self, old_book: EpubBook):
         old_version_ts = last_modified(old_book)
         all_done = self.end_date is not None and self.end_date < old_version_ts
-        if not all_done and old_version_ts < self.updated_at:
+        if not all_done and old_version_ts < self.tagged_at:
             return
         compiled_sections = []
         for item in old_book.get_items():
