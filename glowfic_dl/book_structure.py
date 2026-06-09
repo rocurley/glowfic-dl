@@ -89,10 +89,10 @@ class Thread:
             return str(self.id)
         start = "start"
         if self.start_date is not None:
-            start = self.start_date.strftime("%Y%m%dT%H%M%S")
+            start = self.start_date.isoformat()
         end = "end"
         if self.end_date is not None:
-            end = self.end_date.strftime("%Y%m%dT%H%M%S")
+            end = self.end_date.isoformat()
         return f"{self.id}-{start}-{end}"
 
     def add_soup(self, soup: BeautifulSoup):
@@ -104,14 +104,10 @@ class Thread:
     def add_compiled_sections(self, compiled_sections: list[EpubHtml]):
         self.compiled_sections = compiled_sections
 
-    def set_start_date(self, date: datetime | str | None):
-        if isinstance(date, str):
-            date = datetime.fromisoformat(date).astimezone()
+    def set_start_date(self, date: datetime | None):
         self.start_date = date
 
-    def set_end_date(self, date: datetime | str | None):
-        if isinstance(date, str):
-            date = datetime.fromisoformat(date).astimezone()
+    def set_end_date(self, date: datetime | None):
         self.end_date = date
 
     def section_name(self, section_ix: int) -> str:
@@ -148,16 +144,20 @@ class Thread:
 
     def set_threads_date_range(
         self,
-        start_date: datetime | str | None,
-        end_date: datetime | str | None,
+        start_date: datetime | None,
+        end_date: datetime | None,
     ):
-        # if a lone thread is empty we'll just output the nothing normally
+        # set these dates for the thread
         self.set_start_date(start_date)
         self.set_end_date(end_date)
+
 
 def last_modified(book: EpubBook) -> datetime:
     for (content, attrs) in book.get_metadata("OPF", "meta"):
         if attrs.get("property") == "dcterms:modified":
+            # this time should be in UTC, hence it ending with a Z 
+            # however ebooklib mistakenly outputs it in local time
+            # so we will parse it as local time
             modified = datetime.fromisoformat(content.strip("Z"))
             return modified.astimezone()
     raise Exception("Couldn't find dcterms:modified")
@@ -193,9 +193,11 @@ class Section:
 
     def set_threads_date_range(
         self,
-        start_date: datetime | str | None,
-        end_date: datetime | str | None,
+        start_date: datetime | None,
+        end_date: datetime | None,
     ):
+        # set these dates for all the section's threads
+        # and remove empty threads
         for thread in self.threads:
             thread.set_start_date(start_date)
             thread.set_end_date(end_date)
@@ -230,9 +232,11 @@ class Continuity:
 
     def set_threads_date_range(
         self,
-        start_date: datetime | str | None,
-        end_date: datetime | str | None
+        start_date: datetime | None,
+        end_date: datetime | None
     ):
+        # set these dates for all the continuity's threads
+        # and remove empty threads and sections
         for section in self.sections:
             section.set_threads_date_range(start_date, end_date)
         if self.sectionless_threads is not None:
