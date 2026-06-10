@@ -68,6 +68,9 @@ class Thread:
         self.start_date: datetime | None = None
         self.end_date: datetime | None = None
 
+        # May become True when adding start or end dates or in render_threads
+        self.is_empty: bool = False
+
         # Filled in by download_threads
         self.soup: BeautifulSoup | None = None
         # Filled in by render_threads
@@ -76,13 +79,6 @@ class Thread:
         self.compiled_sections: list[EpubHtml] | None = None
 
         self.threads: list[Thread] = [self]
-
-    def is_empty(self) -> bool:
-        if self.end_date is not None and self.end_date < self.created_at:
-            return True
-        if self.start_date is not None and self.start_date > self.updated_at:
-            return True
-        return False
 
     def filename_prefix(self) -> str:
         if self.start_date is None and self.end_date is None:
@@ -104,10 +100,17 @@ class Thread:
     def add_compiled_sections(self, compiled_sections: list[EpubHtml]):
         self.compiled_sections = compiled_sections
 
+    def mark_as_empty(self):
+        self.is_empty = True
+
     def set_start_date(self, date: datetime | None):
+        if date is not None and date > self.updated_at:
+            self.mark_as_empty()
         self.start_date = date
 
     def set_end_date(self, date: datetime | None):
+        if date is not None and date < self.created_at:
+            self.mark_as_empty()
         self.end_date = date
 
     def section_name(self, section_ix: int) -> str:
@@ -122,6 +125,9 @@ class Thread:
                 section_ix,
             )
         )
+
+    def remove_empty_threads(self):
+        return  # a single empty thread is left as-is
 
     def load_compiled_sections_from_old_book(self, old_book: EpubBook):
         old_version_ts = last_modified(old_book)
@@ -187,6 +193,9 @@ class Section:
     def add_title_page(self, title_page: EpubHtml):
         self.title_page = title_page
 
+    def remove_empty_threads(self):
+        self.threads = [thread for thread in self.threads if not thread.is_empty]
+
     def load_compiled_sections_from_old_book(self, old_book: EpubBook):
         for thread in self.threads:
             thread.load_compiled_sections_from_old_book(old_book)
@@ -201,7 +210,7 @@ class Section:
         for thread in self.threads:
             thread.set_start_date(start_date)
             thread.set_end_date(end_date)
-        self.threads = [thread for thread in self.threads if not thread.is_empty()]
+        self.remove_empty_threads()
 
 
 class Continuity:
@@ -226,6 +235,16 @@ class Continuity:
     def add_title_page(self, title_page: HtmlSection):
         self.title_page = title_page
 
+    def remove_empty_threads(self):
+        for section in self.sections:
+            section.remove_empty_threads()
+        self.sections = [section for section in self.sections if section.threads]
+        if self.sectionless_threads is not None:
+            self.sectionless_threads.remove_empty_threads()
+            if not self.sectionless_threads.threads:
+                self.sectionless_threads = None
+        self.threads = list(chain(*[section.threads for section in self.sections]))
+
     def load_compiled_sections_from_old_book(self, old_book: EpubBook):
         for thread in self.threads:
             thread.load_compiled_sections_from_old_book(old_book)
@@ -241,7 +260,4 @@ class Continuity:
             section.set_threads_date_range(start_date, end_date)
         if self.sectionless_threads is not None:
             self.sectionless_threads.set_threads_date_range(start_date, end_date)
-        self.sections = [section for section in self.sections if section.threads]
-        if self.sectionless_threads is not None and not self.sectionless_threads.threads:
-            self.sectionless_threads = None
-        self.threads = [thread for thread in self.threads if not thread.is_empty()]
+        self.remove_empty_threads()

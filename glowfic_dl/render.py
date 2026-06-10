@@ -338,6 +338,18 @@ def get_posted_time(post: Tag) -> datetime:
     return posted_time
 
 
+def get_updated_time(post: Tag) -> Optional[datetime]:
+    span = post.find('span', class_='post-updated')
+    if span is None:
+        return None
+    time_tag = span.find("time")
+    assert time_tag is not None
+    datetime_str = get_attr(time_tag, "datetime")
+    updated_time = datetime.fromisoformat(datetime_str.rstrip('Z'))
+    updated_time = updated_time.replace(tzinfo=timezone.utc)
+    return updated_time
+
+
 def filter_posts_by_date(
     posts: Iterable[Tag],
     start_date: Optional[datetime],
@@ -346,6 +358,17 @@ def filter_posts_by_date(
     posts = list(posts)
     if start_date is not None:
         i = bisect.bisect_left(posts, start_date, key=get_posted_time)
+        # Includes tags at the start that were edited but not posted
+        # in the range we want
+        while True:
+            if i <= 0:
+                break  # no tags before
+            updated_time = get_updated_time(posts[i-1])
+            if updated_time is None:
+                break  # previous tag wasn't edited
+            if updated_time < start_date:
+                break  # edit was before minimum date
+            i -= 1
         posts = posts[i:]
     if end_date is not None:
         i = bisect.bisect_right(posts, end_date, key=get_posted_time)
@@ -370,6 +393,8 @@ def render_threads(threads: list[Thread], image_map: ImageMap, split: str):
 
         posts = chain([first_post], replies)
         posts = filter_posts_by_date(posts, thread.start_date, thread.end_date)
+        if not posts:
+            thread.mark_as_empty()
         thread.add_rendered_sections(
             list(render_posts(posts, image_map, thread.authors, thread.title, split))
         )
