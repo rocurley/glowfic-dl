@@ -86,10 +86,10 @@ class Thread:
             return str(self.id)
         start = "start"
         if self.start_date is not None:
-            start = self.start_date.isoformat()
+            start = self.start_date.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         end = "end"
         if self.end_date is not None:
-            end = self.end_date.isoformat()
+            end = self.end_date.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         return f"{self.id}-{start}-{end}"
 
     def add_soup(self, soup: BeautifulSoup):
