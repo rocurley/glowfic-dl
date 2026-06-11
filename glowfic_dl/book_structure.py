@@ -22,6 +22,7 @@ output_template = """
 </html>
 """.lstrip()
 
+
 #################
 ##   Classes   ##
 #################
@@ -190,6 +191,10 @@ class Section:
         threads = [Thread(post_json) for post_json in post_jsons]
         return cls(id=id, title=name, threads=threads)
 
+    @property
+    def is_empty(self):
+        return not bool(self.threads)
+
     def add_title_page(self, title_page: EpubHtml):
         self.title_page = title_page
 
@@ -232,16 +237,20 @@ class Continuity:
         if sectionless_threads is not None:
             self.threads += sectionless_threads.threads
 
+    @property
+    def is_empty(self):
+        return not bool(self.threads)
+
     def add_title_page(self, title_page: HtmlSection):
         self.title_page = title_page
 
     def remove_empty_threads(self):
         for section in self.sections:
             section.remove_empty_threads()
-        self.sections = [section for section in self.sections if section.threads]
+        self.sections = [section for section in self.sections if not section.is_empty]
         if self.sectionless_threads is not None:
             self.sectionless_threads.remove_empty_threads()
-            if not self.sectionless_threads.threads:
+            if self.sectionless_threads.is_empty:
                 self.sectionless_threads = None
         self.threads = list(chain(*[section.threads for section in self.sections]))
 

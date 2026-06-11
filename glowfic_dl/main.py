@@ -83,7 +83,7 @@ async def download_ebook(
     filename_mode: str,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-) -> str:
+) -> Optional[str]:
     async with Downloader() as downloader:
         book_structure = await downloader.get_book_structure(url)
         book_structure.set_threads_date_range(start_date, end_date)
@@ -117,6 +117,18 @@ async def download_ebook(
     render_threads(book_structure.threads, image_map, split)
     book_structure.remove_empty_threads()
     compile_threads(book_structure.threads)
+
+    if book_structure.is_empty:
+        match book_structure:
+            case Thread():
+                book_type = 'thread'
+            case Section():
+                book_type = 'board section'
+            case Continuity():
+                book_type = 'continuity'
+        templ = 'Error: the {} "{}" (id {}) has no replies posted in the requested time period.'
+        print(templ.format(book_type, book_structure.title, book_structure.id))
+        return
 
     book = assemble_book(book_structure, image_map)
 

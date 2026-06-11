@@ -23,7 +23,6 @@ FILENAME_BANNED_CHAR_RANGES = (
     (ord("\U00100000"), ord("\U0010ffff")),  # Supplementary Private Use Area-B
 )
 
-
 ###################
 ##   Functions   ##
 ###################
