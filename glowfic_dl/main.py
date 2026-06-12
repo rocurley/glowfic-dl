@@ -115,9 +115,8 @@ async def download_ebook(
         image_map.populate_from_threads(book_structure.threads)
         await downloader.download_images(image_map)
     render_threads(book_structure.threads, image_map, split)
-    book_structure.remove_empty_threads()
-    compile_threads(book_structure.threads)
 
+    book_structure.remove_empty_threads()
     if book_structure.is_empty:
         match book_structure:
             case Thread():
@@ -129,6 +128,8 @@ async def download_ebook(
         templ = 'Error: the {} "{}" (id {}) has no replies posted in the requested time period.'
         print(templ.format(book_type, book_structure.title, book_structure.id))
         return
+
+    compile_threads(book_structure.threads)
 
     book = assemble_book(book_structure, image_map)
 
