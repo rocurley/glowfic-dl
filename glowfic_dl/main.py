@@ -64,6 +64,7 @@ def get_args() -> argparse.Namespace:
         args.end_date = datetime.fromisoformat(args.end_date).astimezone()
     return args
 
+
 async def main():
     args = get_args()
     await download_ebook(

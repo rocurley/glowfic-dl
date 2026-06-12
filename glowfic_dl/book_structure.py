@@ -22,7 +22,6 @@ output_template = """
 </html>
 """.lstrip()
 
-
 #################
 ##   Classes   ##
 #################
@@ -57,8 +56,7 @@ class Thread:
         self.url: str = "https://glowfic.com/posts/%d" % post_json["id"]
         self.created_at: datetime = datetime.fromisoformat(
             post_json["created_at"].strip("Z")
-        )
-        self.created_at = self.created_at.replace(tzinfo=timezone.utc)
+        ).replace(tzinfo=timezone.utc)
         self.updated_at: datetime = datetime.fromisoformat(
             post_json["tagged_at"].strip("Z")
         ).replace(tzinfo=timezone.utc)

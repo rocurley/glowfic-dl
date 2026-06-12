@@ -294,7 +294,6 @@ def render_posts(
     title: str,
     split: str,
 ) -> Iterable[HtmlSection]:
-
     rendered_posts = [render_post(post, image_map) for post in posts]
 
     # Thread title page
@@ -390,7 +389,6 @@ def render_threads(threads: list[Thread], image_map: ImageMap, split: str):
         replies = replies_container.find_all(
             "div", class_="post-container", recursive=False
         )
-
         posts = chain([first_post], replies)
         posts = filter_posts_by_date(posts, thread.start_date, thread.end_date)
         if not posts:
