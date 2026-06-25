@@ -78,8 +78,6 @@ async def main():
         )
 
 
-# TODO: Probably want to add a step where we fetch the barebones metadata (so we can check the last update).
-# Maybe want to make a new type for that metadata.
 async def download_ebook(
     url: str,
     split: str,
