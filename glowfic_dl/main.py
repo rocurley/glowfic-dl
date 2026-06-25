@@ -67,13 +67,15 @@ def get_args() -> argparse.Namespace:
 
 async def main():
     args = get_args()
-    await download_ebook(
-        args.url,
-        args.split,
-        "title",
-        args.start_date,
-        args.end_date,
-    )
+    async with Downloader() as downloader:
+        await download_ebook(
+            args.url,
+            args.split,
+            "title",
+            downloader,
+            args.start_date,
+            args.end_date,
+        )
 
 
 # TODO: Probably want to add a step where we fetch the barebones metadata (so we can check the last update).
@@ -82,39 +84,39 @@ async def download_ebook(
     url: str,
     split: str,
     filename_mode: str,
+    downloader: Downloader,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
 ) -> Optional[str]:
-    async with Downloader() as downloader:
-        book_structure = await downloader.get_book_structure(url)
-        book_structure.set_threads_date_range(start_date, end_date)
+    book_structure = await downloader.get_book_structure(url)
+    book_structure.set_threads_date_range(start_date, end_date)
+    
+    match book_structure:
+        case Thread():
+            print("Found 1 thread")
+        case Section():
+            print("Found %i threads" % len(book_structure.threads))
+        case Continuity():
+            print(
+                "Found %i sections and %i threads"
+                % (len(book_structure.sections), len(book_structure.threads))
+            )
+            
+    out_path = gen_ebook_path(filename_mode, book_structure)
+    try:
+        old_book = epub.read_epub(out_path)
+    except:
+        old_book = None
+    image_map = ImageMap()
+    if old_book:
+        image_map.populate_from_book(old_book)
+        book_structure.load_compiled_sections_from_old_book(old_book)
 
-        match book_structure:
-            case Thread():
-                print("Found 1 thread")
-            case Section():
-                print("Found %i threads" % len(book_structure.threads))
-            case Continuity():
-                print(
-                    "Found %i sections and %i threads"
-                    % (len(book_structure.sections), len(book_structure.threads))
-                )
-
-        out_path = gen_ebook_path(filename_mode, book_structure)
-        try:
-            old_book = epub.read_epub(out_path)
-        except:
-            old_book = None
-        image_map = ImageMap()
-        if old_book:
-            image_map.populate_from_book(old_book)
-            book_structure.load_compiled_sections_from_old_book(old_book)
-
-        await downloader.download_threads(
-            book_structure.threads,
-        )
-        image_map.populate_from_threads(book_structure.threads)
-        await downloader.download_images(image_map)
+    await downloader.download_threads(
+        book_structure.threads,
+    )
+    image_map.populate_from_threads(book_structure.threads)
+    await downloader.download_images(image_map)
     render_threads(book_structure.threads, image_map, split)
 
     book_structure.remove_empty_threads()
