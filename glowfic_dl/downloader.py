@@ -34,6 +34,9 @@ class Downloader:
         _ = exc_type
         _ = exc_val
         _ = exc_tb
+        await self.close()
+
+    async def close(self):
         await self.slow_session.close()
         await self.fast_session.close()
 

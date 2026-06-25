@@ -3,6 +3,7 @@ import aiohttp
 import os
 import asyncio
 from getpass import getpass
+from aiohttp.client import ClientSession
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import json
@@ -50,7 +51,24 @@ def get_creds(optional=False):
     return (username, password)
 
 
-async def login(session, optional=False):
+def has_cookie(session: ClientSession) -> bool:
+    for cookie in session.cookie_jar:
+        if cookie.key == COOKIE_NAME:
+            return True
+    return False
+
+
+async def login(session: ClientSession, optional=False, force=False):
+    """Set cookies and headers needed to access glowfic.
+    Keyword arguments:
+    session -- session used to connect to glowfic. Cookies and headers will be stored here.
+    optional -- indicates if login can be skipped.
+    force -- indicates that we should login even if we appear to have valid cookies.
+    """
+    if not force:
+        has_auth = "Authorization" in session.headers
+        if has_auth and has_cookie(session):
+            return
     # Set cookie for non-API endpoints
     authenticity_token = await get_authenticity_token(session)
     creds = get_creds(optional)
@@ -66,10 +84,7 @@ async def login(session, optional=False):
     }
     url = urljoin(GLOWFIC_ROOT, "login")
     resp = await session.post(url, data=payload)
-    found_cookie = False
-    for cookie in session.cookie_jar:
-        found_cookie |= cookie.key == COOKIE_NAME
-    if not found_cookie:
+    if not has_cookie(session):
         raise ValueError("Cookie not found after login")
     api_login_url = urljoin(GLOWFIC_ROOT, "/api/v1/login")
     payload = {
@@ -90,7 +105,9 @@ async def get_authenticity_token(session):
     async with session.get(GLOWFIC_ROOT) as resp:
         soup = BeautifulSoup(await resp.text(), "html.parser")
     form = soup.find("form", id="header-form")
+    assert form is not None
     authenticity_token = form.find("input", attrs={"name": "authenticity_token"})
+    assert authenticity_token is not None
     return authenticity_token.attrs["value"]
 
 
@@ -125,7 +142,7 @@ async def auth_get(
 ) -> aiohttp.ClientResponse:
     resp = await rate_limit_get(session, url, **kwargs)
     if resp.status == 403:
-        await login(session)
+        await login(session, force=True)
         resp = await rate_limit_get(session, url)
         assert resp.status != 403
     return resp
