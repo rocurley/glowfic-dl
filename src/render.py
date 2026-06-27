@@ -270,10 +270,19 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
         author = post.find("div", "post-author").text.strip()
     except AttributeError:
         author = None
+    try:
+        reply_url = ""
+        edit_box = post.find("div", "post-edit-box")
+        if edit_box is not None:
+            reply_url = edit_box.find("a", recursive=False)['href']
+        post_id = "  " + reply_url.split('#')[0][1:]
+    except AttributeError as e:
+        print("Error saving post link", e)
+        post_id = ""
     content = post.find("div", "post-content")
     header = BeautifulSoup("<p><strong></strong></p>", "html.parser")
-    header.find("strong").string = " / ".join(
-        [x for x in [character, screen_name, author] if x is not None]
+    header.find("strong").string = " | ".join(
+        [x for x in [character, screen_name, author, post_id] if x is not None]
     )
 
     for inline_img in content.find_all("img"):
