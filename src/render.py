@@ -321,6 +321,7 @@ def render_post(post: Tag, image_map: ImageMap) -> RenderedPost:
 
 
 def render_posts(
+    description: Tag,
     posts: Iterable[Tag],
     image_map: ImageMap,
     authors: set,
@@ -341,10 +342,16 @@ def render_posts(
     )
     title_page.body.extend(
         BeautifulSoup(
-            '<h3 class="authors">%s</h2>' % ", ".join(sorted(thread_authors)),
+            '<h3 class="authors">%s</h3>' % ", ".join(sorted(thread_authors)),
             "html.parser",
         )
     )
+    if description is not None:
+        if description.text is not None:
+            title_page.body.extend(BeautifulSoup(
+                    '<p class="description">%s</p>' % description.text,
+                    "html.parser",
+                ))
     yield title_page
 
     # Thread posts
@@ -408,8 +415,9 @@ async def download_chapters(
         replies_container = thread.soup.find("div", "flat-post-replies")
         replies = replies_container.find_all("div", "post-container", recursive=False)
         posts = chain([first_post], replies)
+        description = thread.soup.find("div", "post-subheader")
         thread.add_rendered_sections(
-            list(render_posts(posts, image_map, authors, thread.title, split))
+            list(render_posts(description, posts, image_map, authors, thread.title, split))
         )
 
 
@@ -501,6 +509,8 @@ def compile_chapters(threads: list[Thread]) -> Iterable[list[EpubHtml]]:
 
 
 def generate_section_title_pages(sections: list[Section]):
+    #something is making title pages for the threads, and it's not this.  I was printing things to find it.
+    #thread has no add_title_page, which seems wrong.  Also, board sections should make their own titles even if not downloaded under a continuity.
     section_digits = len(str(len(sections)))
     for i, section in enumerate(sections):
         title_page = HtmlSection()
