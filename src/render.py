@@ -509,8 +509,6 @@ def compile_chapters(threads: list[Thread]) -> Iterable[list[EpubHtml]]:
 
 
 def generate_section_title_pages(sections: list[Section]):
-    #something is making title pages for the threads, and it's not this.  I was printing things to find it.
-    #thread has no add_title_page, which seems wrong.  Also, board sections should make their own titles even if not downloaded under a continuity.
     section_digits = len(str(len(sections)))
     for i, section in enumerate(sections):
         title_page = HtmlSection()
