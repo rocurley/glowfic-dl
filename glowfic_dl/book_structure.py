@@ -61,9 +61,11 @@ class Thread:
             post_json["tagged_at"].strip("Z")
         ).replace(tzinfo=timezone.utc)
         self.description: str = post_json.get("description")
-        self.authors = [author["username"] for author in post_json["authors"]]
+        self.authors: list[str] = [
+            author["username"] for author in post_json["authors"]
+        ]
 
-        # Filled in by the set_threads_date_range methods, called in download_ebook 
+        # Filled in by the set_threads_date_range methods, called in download_ebook
         self.start_date: datetime | None = None
         self.end_date: datetime | None = None
 
@@ -160,7 +162,7 @@ class Thread:
 def last_modified(book: EpubBook) -> datetime:
     for (content, attrs) in book.get_metadata("OPF", "meta"):
         if attrs.get("property") == "dcterms:modified":
-            # this time should be in UTC, hence it ending with a Z 
+            # this time should be in UTC, hence it ending with a Z
             # however ebooklib mistakenly outputs it in local time
             # so we will parse it as local time
             modified = datetime.fromisoformat(content.strip("Z"))
@@ -257,9 +259,7 @@ class Continuity:
             thread.load_compiled_sections_from_old_book(old_book)
 
     def set_threads_date_range(
-        self,
-        start_date: datetime | None,
-        end_date: datetime | None
+        self, start_date: datetime | None, end_date: datetime | None
     ):
         # set these dates for all the continuity's threads
         # and remove empty threads and sections
@@ -268,3 +268,12 @@ class Continuity:
         if self.sectionless_threads is not None:
             self.sectionless_threads.set_threads_date_range(start_date, end_date)
         self.remove_empty_threads()
+
+
+# TODO: base class with this as a method?
+def authors(book_structure: Thread | Section | Continuity):
+    authors = set()
+    for thread in book_structure.threads:
+        for author in thread.authors:
+            authors.add(author)
+    return sorted(authors)

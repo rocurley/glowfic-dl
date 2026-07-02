@@ -4,6 +4,7 @@ from datetime import datetime
 
 from ebooklib import epub
 
+from glowfic_dl.book_structure import authors
 from glowfic_dl.downloader import Downloader
 
 from .helpers import make_filename_valid_for_epub3
@@ -162,11 +163,7 @@ def assemble_book(book_structure: Thread | Section | Continuity, image_map: Imag
     for image in get_images_as_epub_items(image_map):
         book.add_item(image)
 
-    authors = set()
-    for thread in book_structure.threads:
-        for author in thread.authors:
-            authors.add(author)
-    for author in sorted(authors):
+    for author in authors(book_structure):
         book.add_author(author)
 
     book.toc, book.spine = generate_toc_and_spine(book_structure)
