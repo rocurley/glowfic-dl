@@ -7,5 +7,5 @@ from glowfic_dl.main import main
 
 # Lightweight wrapper around main.py
 if platform.system() == "Windows":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # type: ignore
 asyncio.run(main())

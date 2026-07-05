@@ -204,17 +204,19 @@ class ImageMap:
                 posts = filter_posts_by_date(posts, thread.start_date, thread.end_date)
                 self.populate_from_posts(posts)
 
-    def populate_from_posts(self, posts: ResultSet):
+    def populate_from_posts(self, posts: list[Tag]):
         # Find icons
         for post in posts:
-            icon = post.find("img", "icon")
+            icon = post.find("img", class_="icon")
             if icon:
-                self.add_icon(icon["src"])
+                self.add_icon(get_attr(icon, "src"))
 
         # Find non-icon images
         for post in posts:
-            for image in post.find("div", "post-content").find_all("img"):
-                self.add_image(image["src"])
+            post_content = post.find("div", class_="post-content")
+            assert post_content is not None
+            for image in post_content.find_all("img"):
+                self.add_image(get_attr(image, "src"))
 
 
 ###################
@@ -332,19 +334,19 @@ def get_posted_time(post: Tag) -> datetime:
     time_tag = post.find("time")
     assert time_tag is not None
     datetime_str = get_attr(time_tag, "datetime")
-    posted_time = datetime.fromisoformat(datetime_str.rstrip('Z'))
+    posted_time = datetime.fromisoformat(datetime_str.rstrip("Z"))
     posted_time = posted_time.replace(tzinfo=timezone.utc)
     return posted_time
 
 
 def get_updated_time(post: Tag) -> Optional[datetime]:
-    span = post.find('span', class_='post-updated')
+    span = post.find("span", class_="post-updated")
     if span is None:
         return None
     time_tag = span.find("time")
     assert time_tag is not None
     datetime_str = get_attr(time_tag, "datetime")
-    updated_time = datetime.fromisoformat(datetime_str.rstrip('Z'))
+    updated_time = datetime.fromisoformat(datetime_str.rstrip("Z"))
     updated_time = updated_time.replace(tzinfo=timezone.utc)
     return updated_time
 
@@ -362,7 +364,7 @@ def filter_posts_by_date(
         while True:
             if i <= 0:
                 break  # no tags before
-            updated_time = get_updated_time(posts[i-1])
+            updated_time = get_updated_time(posts[i - 1])
             if updated_time is None:
                 break  # previous tag wasn't edited
             if updated_time < start_date:
