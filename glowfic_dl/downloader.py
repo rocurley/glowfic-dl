@@ -40,6 +40,9 @@ class Downloader:
         await self.slow_session.close()
         await self.fast_session.close()
 
+    async def login(self, optional=False, force=False):
+        await login(self.slow_session, optional=optional, force=force)
+
     async def get_book_structure(self, url: str) -> Thread | Section | Continuity:
 
         if "posts" in url:
@@ -49,7 +52,7 @@ class Downloader:
             post_json = await resp.json()
             return Thread(post_json)
         elif "board_sections" in url:
-            await login(self.slow_session, optional=True)
+            await self.login(optional=True)
             section_id = int(urlparse(url).path.split("/")[-1])
             target_url = "https://glowfic.com/api/v1/subcontinuities/%d" % section_id
             await self.limiter.acquire()
@@ -62,7 +65,7 @@ class Downloader:
                     return section
             raise Exception("Unable to find section in board")
         elif "boards" in url:
-            await login(self.slow_session, optional=True)
+            await self.login(optional=True)
             board_id = int(urlparse(url).path.split("/")[-1])
             return await self.get_continuity(board_id)
         else:
