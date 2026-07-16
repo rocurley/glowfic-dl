@@ -253,6 +253,8 @@ class Continuity:
             if self.sectionless_threads.is_empty:
                 self.sectionless_threads = None
         self.threads = list(chain(*[section.threads for section in self.sections]))
+        if self.sectionless_threads is not None:
+            self.threads += self.sectionless_threads.threads
 
     def load_compiled_sections_from_old_book(self, old_book: EpubBook):
         for thread in self.threads:

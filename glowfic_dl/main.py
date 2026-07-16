@@ -50,12 +50,12 @@ def get_args() -> argparse.Namespace:
         help="how often (if at all) to split the output book's internal representations of threads into multiple files. 'none' means no splits occur except at thread boundaries; 'if_large' splits threads over 200kB in size after every 200kB; 'every_post' splits after each post irrespective of size. Default: if_large",
     )
     parser.add_argument(
-        '--start-date',
-        help='downloads only replies posted from this date. Format is ISO 8601, e.g. 2026-05-31 or 2026-05-31T14:30, interpreted as local time',
+        "--start-date",
+        help="downloads only replies posted from this date. Format is ISO 8601, e.g. 2026-05-31 or 2026-05-31T14:30, interpreted as local time",
     )
     parser.add_argument(
-        '--end-date',
-        help='downloads only replies posted up to this date. Format is ISO 8601, e.g. 2026-05-31 or 2026-05-31T14:30, interpreted as local time',
+        "--end-date",
+        help="downloads only replies posted up to this date. Format is ISO 8601, e.g. 2026-05-31 or 2026-05-31T14:30, interpreted as local time",
     )
     parser.add_argument(
         '-o',
@@ -63,7 +63,7 @@ def get_args() -> argparse.Namespace:
         help='output filename for the epub. If not provided, the title is used',
     )
 
-    args =  parser.parse_args()
+    args = parser.parse_args()
     if args.start_date is not None:
         args.start_date = datetime.fromisoformat(args.start_date).astimezone()
     if args.end_date is not None:
@@ -127,11 +127,11 @@ async def download_ebook(
     if book_structure.is_empty:
         match book_structure:
             case Thread():
-                book_type = 'thread'
+                book_type = "thread"
             case Section():
-                book_type = 'board section'
+                book_type = "board section"
             case Continuity():
-                book_type = 'continuity'
+                book_type = "continuity"
         templ = 'Error: the {} "{}" (id {}) has no replies posted in the requested time period.'
         print(templ.format(book_type, book_structure.title, book_structure.id))
         return
