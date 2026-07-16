@@ -72,18 +72,17 @@ async def main():
         await download_ebook(
             args.url,
             args.split,
-            "title",
             downloader,
-            args.start_date,
-            args.end_date,
+            start_date=args.start_date,
+            end_date=args.end_date,
         )
 
 
 async def download_ebook(
     url: str,
     split: str,
-    filename_mode: str,
     downloader: Downloader,
+    filename: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
 ) -> Optional[str]:
@@ -101,7 +100,7 @@ async def download_ebook(
                 % (len(book_structure.sections), len(book_structure.threads))
             )
             
-    out_path = gen_ebook_path(filename_mode, book_structure)
+    out_path = gen_ebook_path(book_structure, filename)
     try:
         old_book = epub.read_epub(out_path)
     except:
@@ -172,19 +171,7 @@ def assemble_book(book_structure: Thread | Section | Continuity, image_map: Imag
     return book
 
 
-def gen_ebook_path(filename_mode: str, book_structure: Thread | Section | Continuity):
-    match filename_mode:
-        case "title":
-            return make_filename_valid_for_epub3("%s.epub" % book_structure.title)
-        case "url":
-            match book_structure:
-                case Thread():
-                    return f"replies_{book_structure.id}.epub"
-                case Section():
-                    return f"board_sections_{book_structure.id}.epub"
-                case Continuity():
-                    return f"boards_{book_structure.id}.epub"
-        case _:
-            raise Exception(
-                f"Unexpected filename mode: should be url or title but got {filename_mode}"
-            )
+def gen_ebook_path(book_structure: Thread | Section | Continuity, filename: Optional[str] = None):
+    if filename is not None:
+        return filename
+    return make_filename_valid_for_epub3("%s.epub" % book_structure.title)
