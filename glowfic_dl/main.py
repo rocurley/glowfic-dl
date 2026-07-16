@@ -57,6 +57,11 @@ def get_args() -> argparse.Namespace:
         '--end-date',
         help='downloads only replies posted up to this date. Format is ISO 8601, e.g. 2026-05-31 or 2026-05-31T14:30, interpreted as local time',
     )
+    parser.add_argument(
+        '-o',
+        '--output',
+        help='output filename for the epub. If not provided, the title is used',
+    )
 
     args =  parser.parse_args()
     if args.start_date is not None:
@@ -73,6 +78,7 @@ async def main():
             args.url,
             args.split,
             downloader,
+            filename=args.output,
             start_date=args.start_date,
             end_date=args.end_date,
         )
