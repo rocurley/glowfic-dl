@@ -22,6 +22,12 @@ from .render import (
 )
 
 # TODO:
+# * Tests: probably golden tests for now.
+#   - https://www.glowfic.com/boards/4341 (continuity with no sections)
+#   - (continuity with sections)
+#   - (board section)
+#   - (single post)
+#   - (continuity requiring pagination)
 # * Better kobo handling
 # * Rewrite internal links
 #   Include linkbacks at the end of the thing that was linked to, eg: "This
@@ -58,9 +64,9 @@ def get_args() -> argparse.Namespace:
         help="downloads only replies posted up to this date. Format is ISO 8601, e.g. 2026-05-31 or 2026-05-31T14:30, interpreted as local time",
     )
     parser.add_argument(
-        '-o',
-        '--output',
-        help='output filename for the epub. If not provided, the title is used',
+        "-o",
+        "--output",
+        help="output filename for the epub. If not provided, the title is used",
     )
 
     args = parser.parse_args()
@@ -94,7 +100,7 @@ async def download_ebook(
 ) -> Optional[str]:
     book_structure = await downloader.get_book_structure(url)
     book_structure.set_threads_date_range(start_date, end_date)
-    
+
     match book_structure:
         case Thread():
             print("Found 1 thread")
@@ -105,7 +111,7 @@ async def download_ebook(
                 "Found %i sections and %i threads"
                 % (len(book_structure.sections), len(book_structure.threads))
             )
-            
+
     out_path = gen_ebook_path(book_structure, filename)
     try:
         old_book = epub.read_epub(out_path)
@@ -177,7 +183,9 @@ def assemble_book(book_structure: Thread | Section | Continuity, image_map: Imag
     return book
 
 
-def gen_ebook_path(book_structure: Thread | Section | Continuity, filename: Optional[str] = None):
+def gen_ebook_path(
+    book_structure: Thread | Section | Continuity, filename: Optional[str] = None
+):
     if filename is not None:
         return filename
     return make_filename_valid_for_epub3("%s.epub" % book_structure.title)
