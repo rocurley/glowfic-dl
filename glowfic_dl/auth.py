@@ -70,7 +70,7 @@ async def login(session: ClientSession, optional=False, force=False):
         if has_auth and has_cookie(session):
             return
     # Set cookie for non-API endpoints
-    authenticity_token = await get_authenticity_token(session)
+    authenticity_token = await get_authenticity_token(session, GLOWFIC_ROOT)
     creds = get_creds(optional)
     if creds is None:
         assert optional
@@ -101,14 +101,12 @@ async def login(session: ClientSession, optional=False, force=False):
     session.headers["Authorization"] = "Bearer %s" % token
 
 
-async def get_authenticity_token(session):
-    async with session.get(GLOWFIC_ROOT) as resp:
+async def get_authenticity_token(session, url):
+    async with session.get(url) as resp:
         soup = BeautifulSoup(await resp.text(), "html.parser")
-    form = soup.find("form", id="header-form")
-    assert form is not None
-    authenticity_token = form.find("input", attrs={"name": "authenticity_token"})
-    assert authenticity_token is not None
-    return authenticity_token.attrs["value"]
+    token_tag = soup.find("meta", attrs={"name": "csrf-token"})
+    assert token_tag is not None
+    return token_tag["content"]
 
 
 async def rate_limit_get(
