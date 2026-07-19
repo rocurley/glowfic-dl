@@ -142,6 +142,8 @@ class Thread:
                 item.title = self.title
                 item.add_meta(name="glowfic-post-id", content=str(self.id))
                 item.add_link(href="../style.css", rel="stylesheet", type="text/css")
+                # You get name collisions if some ids are set and some are not
+                item.id = None
                 compiled_sections.append(item)
         # Can happen if the re-run with more permissions
         if len(compiled_sections) == 0:
