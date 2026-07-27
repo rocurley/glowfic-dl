@@ -58,12 +58,13 @@ def has_cookie(session: ClientSession) -> bool:
     return False
 
 
-async def login(session: ClientSession, optional=False, force=False):
+async def login(session: ClientSession, optional=False, force=False, creds=None):
     """Set cookies and headers needed to access glowfic.
     Keyword arguments:
     session -- session used to connect to glowfic. Cookies and headers will be stored here.
     optional -- indicates if login can be skipped.
     force -- indicates that we should login even if we appear to have valid cookies.
+    creds -- optional (username, password) tuple. If provided, skips get_creds().
     """
     if not force:
         has_auth = "Authorization" in session.headers
@@ -71,7 +72,8 @@ async def login(session: ClientSession, optional=False, force=False):
             return
     # Set cookie for non-API endpoints
     authenticity_token = await get_authenticity_token(session, GLOWFIC_ROOT)
-    creds = get_creds(optional)
+    if creds is None:
+        creds = get_creds(optional)
     if creds is None:
         assert optional
         return

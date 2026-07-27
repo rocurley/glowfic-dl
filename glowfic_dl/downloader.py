@@ -20,7 +20,8 @@ from .render import (
 
 
 class Downloader:
-    def __init__(self):
+    def __init__(self, creds=None):
+        self._creds = creds
         self.limiter = aiolimiter.AsyncLimiter(1, 1)
         self.slow_session = aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(limit_per_host=1)
@@ -41,7 +42,7 @@ class Downloader:
         await self.fast_session.close()
 
     async def login(self, optional=False, force=False):
-        await login(self.slow_session, optional=optional, force=force)
+        await login(self.slow_session, optional=optional, force=force, creds=self._creds)
 
     async def get_book_structure(self, url: str) -> Thread | Section | Continuity:
 
