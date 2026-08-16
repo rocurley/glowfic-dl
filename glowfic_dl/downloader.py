@@ -42,7 +42,9 @@ class Downloader:
         await self.fast_session.close()
 
     async def login(self, optional=False, force=False):
-        await login(self.slow_session, optional=optional, force=force, creds=self._creds)
+        await login(
+            self.slow_session, optional=optional, force=force, creds=self._creds
+        )
 
     async def get_book_structure(self, url: str) -> Thread | Section | Continuity:
 
@@ -130,13 +132,13 @@ class Downloader:
         threads: list[Thread],
     ):
         print("Downloading chapter texts")
-        await tqdm.gather(
-            *[
-                self.download_chapter(thread)
-                for thread in threads
-                if thread.compiled_sections is None
-            ]
-        )
+        # Fetch chapters sequentially: each download_chapter acquires the
+        # shared rate limiter, so there's no point in using gather here.
+        # Requesting the limiter in series helps out glowfic-kobo, which may
+        # also want the limiter to do a concurrent metadata fetch.
+        pending = [t for t in threads if t.compiled_sections is None]
+        for thread in tqdm(pending):
+            await self.download_chapter(thread)
 
     async def download_images(self, image_map):
         print("Downloading images")
