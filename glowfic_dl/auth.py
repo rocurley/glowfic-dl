@@ -77,7 +77,7 @@ async def login(session: ClientSession, optional=False, force=False, creds=None)
     if creds is None:
         assert optional
         return
-    (username, password) = creds
+    username, password = creds
     payload = {
         "username": username,
         "password": password,
@@ -134,15 +134,4 @@ async def rate_limit_get(
     resp = await session.get(url, **kwargs)
     if resp.status == 429:
         raise Exception("Failed to respect rate limit!")
-    return resp
-
-
-async def auth_get(
-    session: aiohttp.ClientSession, url, **kwargs
-) -> aiohttp.ClientResponse:
-    resp = await rate_limit_get(session, url, **kwargs)
-    if resp.status == 403:
-        await login(session, force=True)
-        resp = await rate_limit_get(session, url)
-        assert resp.status != 403
     return resp

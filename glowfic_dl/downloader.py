@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from tqdm.asyncio import tqdm
 
-from .auth import auth_get, login
+from .auth import rate_limit_get, login
 from .render import (
     Continuity,
     MappedImage,
@@ -46,12 +46,20 @@ class Downloader:
             self.slow_session, optional=optional, force=force, creds=self._creds
         )
 
+    async def auth_get(self, url, **kwargs) -> aiohttp.ClientResponse:
+        resp = await rate_limit_get(self.slow_session, url, **kwargs)
+        if resp.status == 403:
+            await self.login(force=True)
+            resp = await rate_limit_get(self.slow_session, url)
+            assert resp.status != 403
+        return resp
+
     async def get_book_structure(self, url: str) -> Thread | Section | Continuity:
 
         if "posts" in url:
             target_url = "https://glowfic.com/api/v1%s" % urlparse(url).path
             await self.limiter.acquire()
-            resp = await auth_get(self.slow_session, target_url)
+            resp = await self.auth_get(target_url)
             post_json = await resp.json()
             return Thread(post_json)
         elif "board_sections" in url:
@@ -59,7 +67,7 @@ class Downloader:
             section_id = int(urlparse(url).path.split("/")[-1])
             target_url = "https://glowfic.com/api/v1/subcontinuities/%d" % section_id
             await self.limiter.acquire()
-            resp = await auth_get(self.slow_session, target_url)
+            resp = await self.auth_get(target_url)
             section_json = await resp.json()
             board_id = section_json["board_id"]
             continuity = await self.get_continuity(board_id)
@@ -85,14 +93,14 @@ class Downloader:
 
         target_url = "https://glowfic.com/api/v1/boards/%d" % board_id
         await self.limiter.acquire()
-        resp = await auth_get(self.slow_session, target_url)
+        resp = await self.auth_get(target_url)
         board_json = await resp.json()
         title = board_json["name"]
         target_url = "https://glowfic.com/api/v1/boards/%d/posts" % board_id
         by_section: dict[SectionInfo | None, list[Any]] = {}
         for page in itertools.count(start=1):
             await self.limiter.acquire()
-            resp = await auth_get(self.slow_session, target_url, params={"page": page})
+            resp = await self.auth_get(target_url, params={"page": page})
             posts_json = await resp.json()
             for post_json in posts_json["results"]:
                 section = post_json.get("section")
@@ -122,7 +130,7 @@ class Downloader:
         thread: Thread,
     ):
         await self.limiter.acquire()
-        resp = await auth_get(self.slow_session, thread.url, params={"view": "flat"})
+        resp = await self.auth_get(thread.url, params={"view": "flat"})
         soup = BeautifulSoup(await resp.text(), "html.parser")
         resp.close()
         thread.add_soup(soup)
