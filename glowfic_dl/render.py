@@ -19,7 +19,6 @@ from lxml import etree
 from .book_structure import Thread, Section, Continuity, RenderedPost, HtmlSection
 from .helpers import get_attr, make_filename_valid_for_epub3, process_image_for_epub3
 
-
 ################
 ##   Consts   ##
 ################
@@ -128,7 +127,7 @@ class MappedImage:
 
     @classmethod
     def from_file(cls, filename: Path, file: bytes) -> Self:
-        (ty, hash, expected_ext) = parse_image_filename(filename)
+        ty, hash, expected_ext = parse_image_filename(filename)
         out = cls(ty, hash)
         match process_image_for_epub3(file):
             case None:
@@ -169,7 +168,9 @@ class ImageMap:
 
     # tracks which cached images have been used from cached text
     def add_cached_image_usage(self, path: str):
-        (_, hash, _) = parse_image_filename(Path(path))
+        if path == "data:,":
+            return
+        _, hash, _ = parse_image_filename(Path(path))
         self.cached_posts_images.add(hash)
 
     def get_icon_name(self, url: str) -> Optional[str]:
@@ -404,7 +405,7 @@ def map_permalinks_to_filenames(threads: list[Thread]) -> dict[str, str]:
     anchor_sections = {}
     for thread in threads:
         if thread.compiled_sections is not None:
-            for (j, compiled_section) in enumerate(thread.compiled_sections):
+            for j, compiled_section in enumerate(thread.compiled_sections):
                 file_name = thread.section_name(j)
                 soup = BeautifulSoup(compiled_section.content, "html.parser")
                 for anchor in soup.find_all("a"):
@@ -422,7 +423,7 @@ def map_permalinks_to_filenames(threads: list[Thread]) -> dict[str, str]:
                     anchor_sections[permalink] = file_name
         else:
             assert thread.rendered_sections is not None
-            for (j, compiled_section) in enumerate(thread.rendered_sections):
+            for j, compiled_section in enumerate(thread.rendered_sections):
                 file_name = thread.section_name(j)
                 for permalink in compiled_section.link_targets:
                     anchor_sections[permalink] = file_name
