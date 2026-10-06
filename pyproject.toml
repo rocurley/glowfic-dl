@@ -17,3 +17,8 @@ dependencies = [
   "tzdata",
   "typing-extensions",
 ]
+
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["test"]

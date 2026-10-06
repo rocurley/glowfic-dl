@@ -1,7 +1,6 @@
 from typing import Optional
 
-from src.helpers import make_filename_valid_for_epub3
-
+from glowfic_dl.helpers import make_filename_valid_for_epub3
 
 ###############
 ##   Tests   ##

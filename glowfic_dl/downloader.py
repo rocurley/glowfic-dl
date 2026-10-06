@@ -164,7 +164,9 @@ class Downloader:
             headers = {}
             if "imgur" in url:
                 headers = {"user-agent": "curl/8.1.1", "accept": "*/*"}
-            async with self.fast_session.get(url, timeout=15, headers=headers) as resp:
+            async with self.fast_session.get(
+                url, timeout=aiohttp.ClientTimeout(total=15), headers=headers
+            ) as resp:
                 file = await resp.read()
                 if len(file) == 0:
                     print("Empty download for %s" % url)
