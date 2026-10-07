@@ -103,7 +103,7 @@ async def login(session: ClientSession, optional=False, force=False, creds=None)
     session.headers["Authorization"] = "Bearer %s" % token
 
 
-async def get_authenticity_token(session, url):
+async def get_authenticity_token(session, url) -> str:
     async with session.get(url) as resp:
         soup = BeautifulSoup(await resp.text(), "html.parser")
     token_tag = soup.find("meta", attrs={"name": "csrf-token"})

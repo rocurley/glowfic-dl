@@ -41,7 +41,7 @@ class Downloader:
         await self.slow_session.close()
         await self.fast_session.close()
 
-    async def login(self, optional=False, force=False):
+    async def login(self, optional: bool = False, force: bool = False) -> None:
         await login(
             self.slow_session, optional=optional, force=force, creds=self._creds
         )
