@@ -61,6 +61,7 @@ class Thread:
             post_json["tagged_at"].strip("Z")
         ).replace(tzinfo=timezone.utc)
         self.description: str = post_json.get("description")
+        self.status: str | None = post_json.get("status")
         self.authors: list[str] = [
             author["username"] for author in post_json["authors"]
         ]
@@ -162,7 +163,7 @@ class Thread:
 
 
 def last_modified(book: EpubBook) -> datetime:
-    for (content, attrs) in book.get_metadata("OPF", "meta"):
+    for content, attrs in book.get_metadata("OPF", "meta"):
         if attrs.get("property") == "dcterms:modified":
             # this time should be in UTC, hence it ending with a Z
             # however ebooklib mistakenly outputs it in local time
